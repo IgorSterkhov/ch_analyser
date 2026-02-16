@@ -220,7 +220,7 @@ def _load_tables(tables_panel, columns_panel):
 
 
 def _load_columns(columns_panel, full_table_name: str):
-    """Fetch and render columns into the right panel."""
+    """Fetch and render columns + query history tabs into the right panel."""
     columns_panel.clear()
     service = state.service
     if not service:
@@ -229,40 +229,123 @@ def _load_columns(columns_panel, full_table_name: str):
     with columns_panel:
         ui.label(full_table_name).classes('text-subtitle1 text-weight-bold q-mb-sm')
 
-        try:
-            data = service.get_columns(full_table_name)
-        except Exception as ex:
-            ui.notify(f'Failed to load columns: {ex}', type='negative')
-            return
+        with ui.tabs().classes('w-full') as tabs:
+            columns_tab = ui.tab('Columns')
+            history_tab = ui.tab('Query History')
 
-        if not data:
-            ui.label('No columns found.').classes('text-grey-7')
-            return
+        with ui.tab_panels(tabs, value=columns_tab).classes('w-full'):
+            with ui.tab_panel(columns_tab):
+                _render_columns_tab(service, full_table_name)
+            with ui.tab_panel(history_tab):
+                _render_query_history_tab(service, full_table_name)
 
-        columns = [
-            {'name': 'name', 'label': 'Column', 'field': 'name', 'align': 'left', 'sortable': True},
-            {'name': 'type', 'label': 'Type', 'field': 'type', 'align': 'left', 'sortable': True},
-            {'name': 'codec', 'label': 'Codec', 'field': 'codec', 'align': 'left'},
-            {'name': 'size', 'label': 'Size', 'field': 'size', 'align': 'right', 'sortable': True,
-             ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
-        ]
-        rows = [
-            {
-                'name': c['name'],
-                'type': c['type'],
-                'codec': c.get('codec', ''),
-                'size': c.get('size', '0 B'),
-                'size_bytes': c.get('size_bytes', 0),
-            }
-            for c in data
-        ]
 
-        ui.table(
-            columns=columns,
-            rows=rows,
-            row_key='name',
-            pagination={'rowsPerPage': 0, 'sortBy': 'size', 'descending': True},
-        ).classes('w-full')
+def _render_columns_tab(service, full_table_name: str):
+    """Render the columns table inside a tab panel."""
+    try:
+        data = service.get_columns(full_table_name)
+    except Exception as ex:
+        ui.notify(f'Failed to load columns: {ex}', type='negative')
+        return
+
+    if not data:
+        ui.label('No columns found.').classes('text-grey-7')
+        return
+
+    columns = [
+        {'name': 'name', 'label': 'Column', 'field': 'name', 'align': 'left', 'sortable': True},
+        {'name': 'type', 'label': 'Type', 'field': 'type', 'align': 'left', 'sortable': True},
+        {'name': 'codec', 'label': 'Codec', 'field': 'codec', 'align': 'left'},
+        {'name': 'size', 'label': 'Size', 'field': 'size', 'align': 'right', 'sortable': True,
+         ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
+    ]
+    rows = [
+        {
+            'name': c['name'],
+            'type': c['type'],
+            'codec': c.get('codec', ''),
+            'size': c.get('size', '0 B'),
+            'size_bytes': c.get('size_bytes', 0),
+        }
+        for c in data
+    ]
+
+    ui.table(
+        columns=columns,
+        rows=rows,
+        row_key='name',
+        pagination={'rowsPerPage': 0, 'sortBy': 'size', 'descending': True},
+    ).classes('w-full')
+
+
+def _render_query_history_tab(service, full_table_name: str):
+    """Render query history table inside a tab panel."""
+    try:
+        data = service.get_query_history(full_table_name)
+    except Exception as ex:
+        ui.notify(f'Failed to load query history: {ex}', type='negative')
+        return
+
+    if not data:
+        ui.label('No query history found.').classes('text-grey-7')
+        return
+
+    # Search/filter input
+    filter_input = ui.input(placeholder='Filter...').props('dense clearable').classes('q-mb-sm w-full')
+
+    columns = [
+        {'name': 'event_time', 'label': 'Time', 'field': 'event_time', 'align': 'left', 'sortable': True},
+        {'name': 'user', 'label': 'User', 'field': 'user', 'align': 'left', 'sortable': True},
+        {'name': 'query_kind', 'label': 'Kind', 'field': 'query_kind', 'align': 'center', 'sortable': True},
+        {'name': 'query', 'label': 'Query', 'field': 'query_short', 'align': 'left'},
+    ]
+    rows = [
+        {
+            'event_time': r['event_time'],
+            'user': r['user'],
+            'query_kind': r['query_kind'],
+            'query_short': r['query'][:50] + ('...' if len(r['query']) > 50 else ''),
+            'query_full': r['query'],
+        }
+        for r in data
+    ]
+
+    tbl = ui.table(
+        columns=columns,
+        rows=rows,
+        row_key='event_time',
+        pagination={'rowsPerPage': 20, 'sortBy': 'event_time', 'descending': True},
+    ).classes('w-full')
+
+    # Bind filter input to table's built-in filter
+    tbl.bind_filter_from(filter_input, 'value')
+
+    tbl.add_slot(
+        'body',
+        r'''
+        <q-tr :props="props">
+            <q-td key="event_time" :props="props">{{ props.row.event_time }}</q-td>
+            <q-td key="user" :props="props">{{ props.row.user }}</q-td>
+            <q-td key="query_kind" :props="props">{{ props.row.query_kind }}</q-td>
+            <q-td key="query" :props="props">
+                {{ props.row.query_short }}
+                <q-btn flat dense size="sm" icon="visibility" color="primary"
+                       @click.stop="$parent.$emit('show-query', props.row)" />
+            </q-td>
+        </q-tr>
+        ''',
+    )
+
+    def on_show_query(e):
+        row = e.args
+        with ui.dialog() as dlg, ui.card().classes('w-full max-w-3xl q-pa-md'):
+            ui.label('Query').classes('text-h6 q-mb-sm')
+            ui.html(f'<pre style="white-space: pre-wrap; word-break: break-all; max-height: 60vh; overflow: auto;">{row["query_full"]}</pre>')
+            with ui.row().classes('w-full justify-end q-mt-md'):
+                ui.button('Close', on_click=dlg.close).props('flat')
+        dlg.open()
+
+    tbl.on('show-query', on_show_query)
 
 
 def _clear_tables(tables_panel):

@@ -112,3 +112,21 @@ class AnalysisService:
         except Exception as e:
             logger.error("Failed to get columns for %s: %s", full_table_name, e)
             return []
+
+    def get_query_history(self, full_table_name: str, limit: int = 200) -> list[dict]:
+        try:
+            rows = self._client.execute(
+                "SELECT event_time, user, query_kind, query "
+                "FROM system.query_log "
+                "WHERE type = 'QueryFinish' "
+                "AND has(tables, %(table)s) "
+                "ORDER BY event_time DESC "
+                "LIMIT %(limit)s",
+                {"table": full_table_name, "limit": limit},
+            )
+            for r in rows:
+                r["event_time"] = str(r["event_time"])
+            return rows
+        except Exception as e:
+            logger.error("Failed to get query history for %s: %s", full_table_name, e)
+            return []
