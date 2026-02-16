@@ -1,0 +1,115 @@
+from ch_analyser.client import CHClient
+from ch_analyser.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+
+class AnalysisService:
+    def __init__(self, client: CHClient):
+        self._client = client
+
+    @property
+    def database(self) -> str:
+        return self._client._config.database
+
+    def get_tables(self) -> list[dict]:
+        db = self.database
+
+        # 1. Table sizes from system.parts
+        sizes = {}
+        sizes_bytes = {}
+        try:
+            rows = self._client.execute(
+                "SELECT table, formatReadableSize(sum(bytes_on_disk)) AS size, "
+                "sum(bytes_on_disk) AS size_bytes "
+                "FROM system.parts "
+                "WHERE active AND database = %(db)s "
+                "GROUP BY table ORDER BY table",
+                {"db": db},
+            )
+            sizes = {r["table"]: r["size"] for r in rows}
+            sizes_bytes = {r["table"]: r["size_bytes"] for r in rows}
+        except Exception as e:
+            logger.warning("Failed to get table sizes: %s", e)
+
+        # 2. Last SELECT per table from query_log
+        last_selects = {}
+        try:
+            rows = self._client.execute(
+                "SELECT arrayJoin(tables) AS table_name, max(event_time) AS last_select "
+                "FROM system.query_log "
+                "WHERE type = 'QueryFinish' AND query_kind = 'Select' "
+                "AND has(databases, %(db)s) "
+                "GROUP BY table_name",
+                {"db": db},
+            )
+            for r in rows:
+                tname = r["table_name"]
+                # table_name comes as 'db.table', extract table part
+                if "." in tname:
+                    tname = tname.split(".")[-1]
+                last_selects[tname] = str(r["last_select"])
+        except Exception as e:
+            logger.warning("Failed to get last SELECT times: %s", e)
+
+        # 3. Last INSERT per table from query_log
+        last_inserts = {}
+        try:
+            rows = self._client.execute(
+                "SELECT arrayJoin(tables) AS table_name, max(event_time) AS last_insert "
+                "FROM system.query_log "
+                "WHERE type = 'QueryFinish' AND query_kind = 'Insert' "
+                "AND has(databases, %(db)s) "
+                "GROUP BY table_name",
+                {"db": db},
+            )
+            for r in rows:
+                tname = r["table_name"]
+                if "." in tname:
+                    tname = tname.split(".")[-1]
+                last_inserts[tname] = str(r["last_insert"])
+        except Exception as e:
+            logger.warning("Failed to get last INSERT times: %s", e)
+
+        # Merge results, sort by size descending
+        all_tables = set(sizes.keys()) | set(last_selects.keys()) | set(last_inserts.keys())
+        result = []
+        for table in all_tables:
+            result.append({
+                "name": table,
+                "size": sizes.get(table, "0 B"),
+                "size_bytes": sizes_bytes.get(table, 0),
+                "last_select": last_selects.get(table, "-"),
+                "last_insert": last_inserts.get(table, "-"),
+            })
+        result.sort(key=lambda t: t["size_bytes"], reverse=True)
+        return result
+
+    def get_columns(self, table_name: str) -> list[dict]:
+        db = self.database
+        try:
+            rows = self._client.execute(
+                "SELECT "
+                "  c.name AS name, "
+                "  c.type AS type, "
+                "  c.compression_codec AS codec, "
+                "  formatReadableSize(sum(pc.column_bytes_on_disk)) AS size, "
+                "  sum(pc.column_bytes_on_disk) AS size_bytes "
+                "FROM system.columns AS c "
+                "LEFT JOIN ( "
+                "  SELECT database, table, column, "
+                "    sum(column_bytes_on_disk) AS column_bytes_on_disk "
+                "  FROM system.parts_columns "
+                "  WHERE active AND database = %(db)s AND table = %(table)s "
+                "  GROUP BY database, table, column "
+                ") AS pc "
+                "ON c.name = pc.column AND c.table = pc.table AND c.database = pc.database "
+                "WHERE c.database = %(db)s AND c.table = %(table)s "
+                "GROUP BY c.name, c.type, c.compression_codec "
+                "ORDER BY size_bytes DESC",
+                {"db": db, "table": table_name},
+            )
+            return rows
+        except Exception as e:
+            logger.error("Failed to get columns for %s: %s", table_name, e)
+            return []
