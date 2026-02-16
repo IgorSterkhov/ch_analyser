@@ -10,6 +10,9 @@ from ch_analyser.web.auth_helpers import require_auth, is_admin
 from ch_analyser.web.components.header import header
 from ch_analyser.web.components.connection_dialog import connection_dialog
 
+# Name of the connection currently in "connecting" state (for UI feedback)
+_connecting_name: str | None = None
+
 
 def _build_connections_panel(conn_container, tables_panel, columns_panel):
     """Render the list of connections into conn_container."""
@@ -26,29 +29,48 @@ def _build_connections_panel(conn_container, tables_panel, columns_panel):
 
         for cfg in connections:
             is_active = cfg.name == active_name
+            is_connecting = cfg.name == _connecting_name
             bg = 'bg-blue-1' if is_active else ''
-            with ui.card().classes(f'w-full q-pa-xs q-mb-xs cursor-pointer {bg}').props('flat bordered'):
+
+            card = ui.card().classes(f'w-full q-pa-xs q-mb-xs cursor-pointer {bg}').props('flat bordered')
+            card.on('click', lambda c=cfg: _on_connect(c, conn_container, tables_panel, columns_panel))
+
+            with card:
                 with ui.row().classes('items-center w-full justify-between no-wrap'):
                     with ui.column().classes('gap-0'):
                         ui.label(cfg.name).classes('text-weight-bold' if is_active else '')
                         ui.label(f'{cfg.host}:{cfg.port}').classes('text-caption text-grey-7')
+                        if is_connecting:
+                            ui.label('Connecting...').classes('text-caption text-orange')
+                        elif is_active:
+                            ui.label('Connected').classes('text-caption text-green')
 
-                    with ui.row().classes('gap-0'):
-                        if admin:
-                            ui.button(
-                                icon='edit', on_click=lambda c=cfg: _on_edit(c, conn_container, tables_panel, columns_panel)
-                            ).props('flat dense size=sm color=primary')
-                            ui.button(
-                                icon='delete', on_click=lambda c=cfg: _on_delete(c, conn_container, tables_panel, columns_panel)
-                            ).props('flat dense size=sm color=negative')
-                        ui.button(
-                            icon='power_settings_new',
-                            on_click=lambda c=cfg: _on_connect(c, conn_container, tables_panel, columns_panel),
-                        ).props('flat dense size=sm color=positive')
+                    if admin:
+                        with ui.button(icon='more_vert').props('flat dense size=sm').classes('self-start'):
+                            with ui.menu():
+                                ui.menu_item(
+                                    'Edit',
+                                    on_click=lambda c=cfg: _on_edit(c, conn_container, tables_panel, columns_panel),
+                                )
+                                ui.menu_item(
+                                    'Delete',
+                                    on_click=lambda c=cfg: _on_delete(c, conn_container, tables_panel, columns_panel),
+                                )
 
 
 def _on_connect(cfg, conn_container, tables_panel, columns_panel):
+    global _connecting_name
+
+    # Don't reconnect if already connected to this one
+    if state.active_connection_name == cfg.name:
+        return
+
     try:
+        # Show "Connecting..." state
+        _connecting_name = cfg.name
+        state.active_connection_name = None
+        _build_connections_panel(conn_container, tables_panel, columns_panel)
+
         if state.client and state.client.connected:
             state.client.disconnect()
 
@@ -57,12 +79,15 @@ def _on_connect(cfg, conn_container, tables_panel, columns_panel):
         state.client = client
         state.service = AnalysisService(client)
         state.active_connection_name = cfg.name
-        ui.notify(f'Connected to "{cfg.name}"', type='positive')
+        _connecting_name = None
 
         _build_connections_panel(conn_container, tables_panel, columns_panel)
         _load_tables(tables_panel, columns_panel)
         _clear_columns(columns_panel)
     except Exception as ex:
+        _connecting_name = None
+        state.active_connection_name = None
+        _build_connections_panel(conn_container, tables_panel, columns_panel)
         ui.notify(f'Connection failed: {ex}', type='negative')
 
 
@@ -266,9 +291,12 @@ def main_page():
 
             conn_container = ui.column().classes('w-full gap-1')
 
-            # Placeholder panels — will be populated after layout
+            # Placeholder — will be set after center/right panels are created
             tables_panel = None
             columns_panel = None
+
+            # Add button for admin — placed outside conn_container so it survives rebuilds
+            add_btn_container = ui.column().classes('w-full')
 
         # CENTER: Tables
         with ui.card().classes('q-pa-sm overflow-auto').style('width: 40%'):
@@ -284,10 +312,10 @@ def main_page():
             with columns_panel:
                 ui.label('Select a table.').classes('text-grey-7')
 
-    # Now build connections panel (needs tables_panel and columns_panel refs)
+    # Build connections list
     _build_connections_panel(conn_container, tables_panel, columns_panel)
 
-    # Add button for admin (after conn_container is built)
+    # Add button — outside conn_container, won't be cleared on rebuild
     if is_admin():
         def open_add_dialog():
             def save(cfg):
@@ -299,8 +327,7 @@ def main_page():
                     ui.notify(str(ex), type='negative')
             connection_dialog(on_save=save)
 
-        # Insert the add button into the connections card
-        with conn_container:
+        with add_btn_container:
             ui.button('Add', icon='add', on_click=open_add_dialog).props(
                 'color=primary dense'
             ).classes('q-mt-sm w-full')

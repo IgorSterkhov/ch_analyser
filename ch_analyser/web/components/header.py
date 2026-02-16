@@ -1,22 +1,12 @@
 from nicegui import ui, app
 
-import ch_analyser.web.state as state
-
 
 def header():
-    """Shared header with app title, connection status, user info, and logout."""
+    """Shared header with app title, user info, and logout."""
     with ui.header().classes('items-center justify-between'):
         ui.label('ClickHouse Analyser').classes('text-h6 text-white')
 
         with ui.row().classes('items-center gap-4'):
-            active_name = state.active_connection_name
-            if active_name:
-                with ui.row().classes('items-center gap-2'):
-                    ui.icon('link').classes('text-green-300')
-                    ui.label(f'Connected: {active_name}').classes('text-green-300')
-            else:
-                ui.label('Not connected').classes('text-grey-400')
-
             username = app.storage.user.get('username', '')
             role = app.storage.user.get('role', '')
             if username:
