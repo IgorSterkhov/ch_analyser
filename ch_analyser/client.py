@@ -18,7 +18,6 @@ class CHClient:
             port=self._config.port,
             user=self._config.user,
             password=self._config.password,
-            database=self._config.database,
         )
         self._client.execute("SELECT 1")
         logger.info("Connected to ClickHouse at %s:%s", self._config.host, self._config.port)

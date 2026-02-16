@@ -7,9 +7,7 @@ import ch_analyser.web.state  # noqa: F401
 
 # Import pages so their @ui.page decorators register routes
 import ch_analyser.web.pages.login  # noqa: F401
-import ch_analyser.web.pages.connections  # noqa: F401
-import ch_analyser.web.pages.tables  # noqa: F401
-import ch_analyser.web.pages.columns  # noqa: F401
+import ch_analyser.web.pages.main  # noqa: F401
 
 
 def start():

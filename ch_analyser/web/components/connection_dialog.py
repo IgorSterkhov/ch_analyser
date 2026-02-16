@@ -37,10 +37,6 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None):
             password=True,
             password_toggle_button=True,
         ).classes('w-full')
-        database_input = ui.input(
-            'Database',
-            value=existing.database if existing else 'default',
-        ).classes('w-full')
 
         with ui.row().classes('w-full justify-end q-mt-md gap-2'):
             ui.button('Cancel', on_click=dialog.close).props('flat')
@@ -55,7 +51,6 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None):
                     port=int(port_input.value or 9000),
                     user=user_input.value.strip() or 'default',
                     password=password_input.value or '',
-                    database=database_input.value.strip() or 'default',
                 )
                 dialog.close()
                 on_save(cfg)

@@ -9,7 +9,7 @@ logger = get_logger(__name__)
 
 CONN_PREFIX = "CLICKHOUSE_CONNECTION_"
 CONN_PATTERN = re.compile(r"^CLICKHOUSE_CONNECTION_(\d+)_(.+)$")
-FIELDS = ("NAME", "HOST", "PORT", "USER", "PASSWORD", "DATABASE")
+FIELDS = ("NAME", "HOST", "PORT", "USER", "PASSWORD")
 
 
 @dataclass
@@ -19,7 +19,6 @@ class ConnectionConfig:
     port: int = 9000
     user: str = "default"
     password: str = ""
-    database: str = "default"
 
 
 class ConnectionManager:
@@ -53,7 +52,6 @@ class ConnectionManager:
                 port=int(data.get("PORT", "9000")),
                 user=data.get("USER", "default"),
                 password=data.get("PASSWORD", ""),
-                database=data.get("DATABASE", "default"),
             )
 
     def list_connections(self) -> list[ConnectionConfig]:
@@ -119,4 +117,3 @@ class ConnectionManager:
                 f.write(f"{prefix}PORT={cfg.port}\n")
                 f.write(f"{prefix}USER={cfg.user}\n")
                 f.write(f"{prefix}PASSWORD={cfg.password}\n")
-                f.write(f"{prefix}DATABASE={cfg.database}\n")

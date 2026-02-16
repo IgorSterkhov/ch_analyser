@@ -3,32 +3,33 @@ from ch_analyser.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+EXCLUDED_DATABASES = ("system", "INFORMATION_SCHEMA", "information_schema")
+
 
 class AnalysisService:
     def __init__(self, client: CHClient):
         self._client = client
 
-    @property
-    def database(self) -> str:
-        return self._client._config.database
-
     def get_tables(self) -> list[dict]:
-        db = self.database
+        excluded = list(EXCLUDED_DATABASES)
 
-        # 1. Table sizes from system.parts
+        # 1. Table sizes from system.parts (all databases except system ones)
         sizes = {}
         sizes_bytes = {}
         try:
             rows = self._client.execute(
-                "SELECT table, formatReadableSize(sum(bytes_on_disk)) AS size, "
+                "SELECT database, table, "
+                "formatReadableSize(sum(bytes_on_disk)) AS size, "
                 "sum(bytes_on_disk) AS size_bytes "
                 "FROM system.parts "
-                "WHERE active AND database = %(db)s "
-                "GROUP BY table ORDER BY table",
-                {"db": db},
+                "WHERE active AND database NOT IN %(excluded)s "
+                "GROUP BY database, table ORDER BY database, table",
+                {"excluded": excluded},
             )
-            sizes = {r["table"]: r["size"] for r in rows}
-            sizes_bytes = {r["table"]: r["size_bytes"] for r in rows}
+            for r in rows:
+                key = f"{r['database']}.{r['table']}"
+                sizes[key] = r["size"]
+                sizes_bytes[key] = r["size_bytes"]
         except Exception as e:
             logger.warning("Failed to get table sizes: %s", e)
 
@@ -39,15 +40,10 @@ class AnalysisService:
                 "SELECT arrayJoin(tables) AS table_name, max(event_time) AS last_select "
                 "FROM system.query_log "
                 "WHERE type = 'QueryFinish' AND query_kind = 'Select' "
-                "AND has(databases, %(db)s) "
                 "GROUP BY table_name",
-                {"db": db},
             )
             for r in rows:
                 tname = r["table_name"]
-                # table_name comes as 'db.table', extract table part
-                if "." in tname:
-                    tname = tname.split(".")[-1]
                 last_selects[tname] = str(r["last_select"])
         except Exception as e:
             logger.warning("Failed to get last SELECT times: %s", e)
@@ -59,20 +55,19 @@ class AnalysisService:
                 "SELECT arrayJoin(tables) AS table_name, max(event_time) AS last_insert "
                 "FROM system.query_log "
                 "WHERE type = 'QueryFinish' AND query_kind = 'Insert' "
-                "AND has(databases, %(db)s) "
                 "GROUP BY table_name",
-                {"db": db},
             )
             for r in rows:
                 tname = r["table_name"]
-                if "." in tname:
-                    tname = tname.split(".")[-1]
                 last_inserts[tname] = str(r["last_insert"])
         except Exception as e:
             logger.warning("Failed to get last INSERT times: %s", e)
 
-        # Merge results, sort by size descending
+        # Merge results
         all_tables = set(sizes.keys()) | set(last_selects.keys()) | set(last_inserts.keys())
+        # Filter out system databases from query_log results too
+        all_tables = {t for t in all_tables if not any(t.startswith(f"{db}.") for db in EXCLUDED_DATABASES)}
+
         result = []
         for table in all_tables:
             result.append({
@@ -85,8 +80,12 @@ class AnalysisService:
         result.sort(key=lambda t: t["size_bytes"], reverse=True)
         return result
 
-    def get_columns(self, table_name: str) -> list[dict]:
-        db = self.database
+    def get_columns(self, full_table_name: str) -> list[dict]:
+        if "." in full_table_name:
+            db, table_name = full_table_name.split(".", 1)
+        else:
+            db, table_name = "default", full_table_name
+
         try:
             rows = self._client.execute(
                 "SELECT "
@@ -111,5 +110,5 @@ class AnalysisService:
             )
             return rows
         except Exception as e:
-            logger.error("Failed to get columns for %s: %s", table_name, e)
+            logger.error("Failed to get columns for %s: %s", full_table_name, e)
             return []

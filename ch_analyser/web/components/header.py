@@ -4,12 +4,9 @@ import ch_analyser.web.state as state
 
 
 def header():
-    """Shared header component with navigation, active connection indicator, and user info."""
+    """Shared header with app title, connection status, user info, and logout."""
     with ui.header().classes('items-center justify-between'):
-        with ui.row().classes('items-center gap-4'):
-            ui.label('ClickHouse Analyser').classes('text-h6 text-white')
-            ui.link('Connections', '/').classes('text-white no-underline hover:underline')
-            ui.link('Tables', '/tables').classes('text-white no-underline hover:underline')
+        ui.label('ClickHouse Analyser').classes('text-h6 text-white')
 
         with ui.row().classes('items-center gap-4'):
             active_name = state.active_connection_name
