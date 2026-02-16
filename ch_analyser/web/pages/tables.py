@@ -1,11 +1,15 @@
-from nicegui import ui, app
+from nicegui import ui
 
+import ch_analyser.web.state as state
+from ch_analyser.web.auth_helpers import require_auth
 from ch_analyser.web.components.header import header
 
 
 @ui.page('/tables')
 def tables_page():
-    service = app.storage.general.get('service')
+    if not require_auth():
+        return
+    service = state.service
     if not service:
         ui.notify('Not connected. Redirecting to connections page.', type='warning')
         ui.navigate.to('/')
@@ -14,7 +18,7 @@ def tables_page():
     header()
 
     with ui.column().classes('w-full max-w-5xl mx-auto q-pa-md'):
-        active_name = app.storage.general.get('active_connection_name', '')
+        active_name = state.active_connection_name or ''
         ui.label(f'Tables \u2014 {active_name}').classes('text-h5 q-mb-md')
 
         table_container = ui.column().classes('w-full')

@@ -1,11 +1,15 @@
-from nicegui import ui, app
+from nicegui import ui
 
+import ch_analyser.web.state as state
+from ch_analyser.web.auth_helpers import require_auth
 from ch_analyser.web.components.header import header
 
 
 @ui.page('/columns/{table_name}')
 def columns_page(table_name: str):
-    service = app.storage.general.get('service')
+    if not require_auth():
+        return
+    service = state.service
     if not service:
         ui.notify('Not connected. Redirecting to connections page.', type='warning')
         ui.navigate.to('/')
