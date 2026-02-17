@@ -1,10 +1,13 @@
 from nicegui import ui, app
 
 
-def header():
+def header(drawer=None):
     """Shared header with app title, user info, and logout."""
     with ui.header().classes('items-center justify-between'):
-        ui.label('ClickHouse Analyser').classes('text-h6 text-white')
+        with ui.row().classes('items-center gap-2'):
+            if drawer:
+                ui.button(icon='menu', on_click=drawer.toggle).props('flat dense color=white')
+            ui.label('ClickHouse Analyser').classes('text-h6 text-white')
 
         with ui.row().classes('items-center gap-4'):
             username = app.storage.user.get('username', '')

@@ -3,6 +3,13 @@ from tkinter import ttk, messagebox
 
 from ch_analyser.config import ConnectionConfig
 
+PORT_DEFAULTS = {
+    ("native", False): 9000,
+    ("native", True): 9440,
+    ("http", False): 8123,
+    ("http", True): 8443,
+}
+
 
 class ConnectionDialog(tk.Toplevel):
     """Modal dialog for creating or editing a connection."""
@@ -11,7 +18,7 @@ class ConnectionDialog(tk.Toplevel):
         super().__init__(parent)
 
         self.title(title)
-        self.geometry("400x320")
+        self.geometry("400x380")
         self.resizable(False, False)
         self.result: ConnectionConfig | None = None
 
@@ -23,15 +30,17 @@ class ConnectionDialog(tk.Toplevel):
         form = ttk.Frame(self, padding=16)
         form.pack(fill=tk.BOTH, expand=True)
 
-        labels = ["Name:", "Host:", "Port:", "User:", "Password:", "Database:"]
-        self._entries: dict[str, tk.Entry] = {}
+        labels = [
+            "Name:", "Host:", "Port:", "User:", "Password:",
+            "Database:", "Protocol:", "SSL:",
+        ]
+        self._entries: dict[str, tk.Widget] = {}
 
         for row, label_text in enumerate(labels):
             ttk.Label(form, text=label_text).grid(
                 row=row, column=0, sticky=tk.W, padx=(0, 8), pady=4
             )
 
-        field_keys = ["name", "host", "port", "user", "password", "database"]
         defaults = {
             "name": "",
             "host": "localhost",
@@ -41,20 +50,47 @@ class ConnectionDialog(tk.Toplevel):
             "database": "default",
         }
 
-        for row, key in enumerate(field_keys):
+        # Text entries: name, host, port, user, password, database
+        text_fields = ["name", "host", "port", "user", "password", "database"]
+        for row, key in enumerate(text_fields):
             show = "*" if key == "password" else ""
             entry = ttk.Entry(form, width=36, show=show)
             entry.grid(row=row, column=1, sticky=tk.EW, pady=4)
             self._entries[key] = entry
 
-            # Pre-fill values
             if config is not None:
                 value = str(getattr(config, key, defaults[key]))
             else:
                 value = defaults[key]
             entry.insert(0, value)
 
+        # Protocol combobox (row 6)
+        protocol_combo = ttk.Combobox(
+            form, values=["native", "http"], state="readonly", width=33,
+        )
+        protocol_combo.set(config.protocol if config else "native")
+        protocol_combo.grid(row=6, column=1, sticky=tk.EW, pady=4)
+        self._entries["protocol"] = protocol_combo
+
+        # SSL checkbox (row 7)
+        self._ssl_var = tk.BooleanVar(value=config.secure if config else False)
+        ssl_check = ttk.Checkbutton(form, variable=self._ssl_var)
+        ssl_check.grid(row=7, column=1, sticky=tk.W, pady=4)
+        self._entries["secure"] = ssl_check
+
         form.columnconfigure(1, weight=1)
+
+        # Auto-update port on protocol/SSL change
+        def _update_port(*_args):
+            proto = protocol_combo.get()
+            secure = self._ssl_var.get()
+            new_port = PORT_DEFAULTS.get((proto, secure), 9000)
+            port_entry = self._entries["port"]
+            port_entry.delete(0, tk.END)
+            port_entry.insert(0, str(new_port))
+
+        protocol_combo.bind("<<ComboboxSelected>>", _update_port)
+        self._ssl_var.trace_add("write", _update_port)
 
         # --- Buttons ---
         btn_frame = ttk.Frame(self, padding=(16, 0, 16, 16))
@@ -82,6 +118,8 @@ class ConnectionDialog(tk.Toplevel):
         user = self._entries["user"].get().strip()
         password = self._entries["password"].get()
         database = self._entries["database"].get().strip()
+        protocol = self._entries["protocol"].get()
+        secure = self._ssl_var.get()
 
         if not name:
             messagebox.showerror("Validation Error", "Name is required.", parent=self)
@@ -102,6 +140,8 @@ class ConnectionDialog(tk.Toplevel):
             user=user or "default",
             password=password,
             database=database or "default",
+            protocol=protocol,
+            secure=secure,
         )
         self.destroy()
 

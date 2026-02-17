@@ -9,7 +9,7 @@ logger = get_logger(__name__)
 
 CONN_PREFIX = "CLICKHOUSE_CONNECTION_"
 CONN_PATTERN = re.compile(r"^CLICKHOUSE_CONNECTION_(\d+)_(.+)$")
-FIELDS = ("NAME", "HOST", "PORT", "USER", "PASSWORD")
+FIELDS = ("NAME", "HOST", "PORT", "USER", "PASSWORD", "PROTOCOL", "SECURE")
 
 
 @dataclass
@@ -19,6 +19,9 @@ class ConnectionConfig:
     port: int = 9000
     user: str = "default"
     password: str = ""
+    protocol: str = "native"   # "native" | "http"
+    secure: bool = False
+    ca_cert: str = ""          # path to CA .crt file
 
 
 class ConnectionManager:
@@ -52,7 +55,15 @@ class ConnectionManager:
                 port=int(data.get("PORT", "9000")),
                 user=data.get("USER", "default"),
                 password=data.get("PASSWORD", ""),
+                protocol=data.get("PROTOCOL", "native"),
+                secure=data.get("SECURE", "false").lower() == "true",
             )
+
+    @property
+    def ca_cert(self) -> str:
+        """Global CA certificate path from CLICKHOUSE_CA_CERT in .env."""
+        values = dotenv_values(self._env_path)
+        return values.get("CLICKHOUSE_CA_CERT", "")
 
     def list_connections(self) -> list[ConnectionConfig]:
         return [self._connections[k] for k in sorted(self._connections)]
@@ -117,3 +128,5 @@ class ConnectionManager:
                 f.write(f"{prefix}PORT={cfg.port}\n")
                 f.write(f"{prefix}USER={cfg.user}\n")
                 f.write(f"{prefix}PASSWORD={cfg.password}\n")
+                f.write(f"{prefix}PROTOCOL={cfg.protocol}\n")
+                f.write(f"{prefix}SECURE={str(cfg.secure).lower()}\n")

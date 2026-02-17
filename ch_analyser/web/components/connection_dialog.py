@@ -2,6 +2,13 @@ from nicegui import ui
 
 from ch_analyser.config import ConnectionConfig
 
+PORT_DEFAULTS = {
+    ("native", False): 9000,
+    ("native", True): 9440,
+    ("http", False): 8123,
+    ("http", True): 8443,
+}
+
 
 def connection_dialog(on_save, existing: ConnectionConfig | None = None):
     """Open a dialog to create or edit a connection configuration.
@@ -38,6 +45,30 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None):
             password_toggle_button=True,
         ).classes('w-full')
 
+        protocol_select = ui.select(
+            {'native': 'Native (TCP)', 'http': 'HTTP'},
+            value=existing.protocol if existing else 'native',
+            label='Protocol',
+        ).classes('w-full')
+
+        ssl_switch = ui.switch(
+            'SSL / TLS',
+            value=existing.secure if existing else False,
+        )
+
+        def _update_port():
+            key = (protocol_select.value, ssl_switch.value)
+            port_input.value = PORT_DEFAULTS.get(key, 9000)
+
+        def _on_protocol_change(_):
+            _update_port()
+
+        def _on_ssl_change(_):
+            _update_port()
+
+        protocol_select.on_value_change(_on_protocol_change)
+        ssl_switch.on_value_change(_on_ssl_change)
+
         with ui.row().classes('w-full justify-end q-mt-md gap-2'):
             ui.button('Cancel', on_click=dialog.close).props('flat')
 
@@ -51,6 +82,8 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None):
                     port=int(port_input.value or 9000),
                     user=user_input.value.strip() or 'default',
                     password=password_input.value or '',
+                    protocol=protocol_select.value,
+                    secure=ssl_switch.value,
                 )
                 dialog.close()
                 on_save(cfg)

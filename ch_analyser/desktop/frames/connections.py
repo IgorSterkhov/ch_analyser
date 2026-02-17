@@ -132,6 +132,9 @@ class ConnectionsFrame(tk.Frame):
             if self.app.client is not None and self.app.client.connected:
                 self.app.client.disconnect()
 
+            # Inject global CA cert
+            cfg.ca_cert = self.app.conn_manager.ca_cert
+
             client = CHClient(cfg)
             client.connect()
             self.app.client = client
