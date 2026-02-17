@@ -416,13 +416,35 @@ def main_page():
     if not require_auth():
         return
 
-    # CSS for selected table row highlight
+    # CSS for selected table row highlight and drawer toggle button
     ui.add_css('''
         .table-row-active {
             background-color: #1976d2 !important;
         }
         .table-row-active td {
             color: white !important;
+        }
+        .drawer-toggle-btn {
+            position: fixed !important;
+            left: 300px;
+            top: 50% !important;
+            transform: translateY(-50%) !important;
+            width: 24px !important;
+            min-width: 24px !important;
+            height: 80px !important;
+            padding: 0 !important;
+            border-radius: 0 8px 8px 0 !important;
+            z-index: 1000 !important;
+            transition: left 0.3s ease !important;
+        }
+        .drawer-toggle-btn.drawer-closed {
+            left: 0 !important;
+        }
+        .drawer-toggle-btn .q-icon {
+            transition: transform 0.3s ease;
+        }
+        .drawer-toggle-btn.drawer-closed .q-icon {
+            transform: rotate(180deg);
         }
     ''')
 
@@ -441,10 +463,26 @@ def main_page():
         # Add button for admin — placed outside conn_container so it survives rebuilds
         add_btn_container = ui.column().classes('w-full')
 
+    # Sync toggle button state whenever drawer opens/closes
+    def _on_drawer_change(e):
+        if e.value:
+            ui.run_javascript("document.querySelector('.drawer-toggle-btn')?.classList.remove('drawer-closed')")
+        else:
+            ui.run_javascript("document.querySelector('.drawer-toggle-btn')?.classList.add('drawer-closed')")
+
+    drawer.on_value_change(_on_drawer_change)
+
     header(drawer=drawer)
 
+    # Toggle button — OUTSIDE drawer, fixed-position, always visible
+    ui.button(icon='chevron_left', on_click=lambda: drawer.set_value(not drawer.value)).props(
+        'color=primary dense unelevated'
+    ).classes('drawer-toggle-btn')
+
     # Main content area
-    with ui.column().classes('w-full q-pa-sm gap-2').style('height: calc(100vh - 64px)'):
+    main_content = ui.column().classes('w-full q-pa-sm gap-2').style('height: calc(100vh - 64px)')
+
+    with main_content:
         # Server info bar
         server_info_bar = ui.card().classes('q-pa-sm w-full').props('flat bordered')
         server_info_bar.set_visibility(False)
@@ -464,6 +502,9 @@ def main_page():
                 columns_panel = ui.column().classes('w-full')
                 with columns_panel:
                     ui.label('Select a table.').classes('text-grey-7')
+
+    # Auto-hide drawer when clicking on main content
+    main_content.on('click', lambda: drawer.hide() if drawer.value else None)
 
     # Build connections list
     _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer)
