@@ -364,36 +364,40 @@ def _clear_columns(columns_panel):
 
 
 def _build_server_info_bar(bar_container):
-    """Render server disk info into the bar container."""
+    """Render server disk info into the bar container (a ui.card)."""
     bar_container.clear()
     service = state.service
     if not service or not state.active_connection_name:
+        bar_container.set_visibility(False)
         return
 
     try:
         disks = service.get_disk_info()
-    except Exception:
+    except Exception as ex:
+        bar_container.set_visibility(False)
+        ui.notify(f'Disk info error: {ex}', type='warning')
         return
 
     if not disks:
+        bar_container.set_visibility(False)
         return
 
+    bar_container.set_visibility(True)
     with bar_container:
         for disk in disks:
-            pct = disk['usage_percent']
+            pct = float(disk['usage_percent'])
             color = 'positive' if pct < 70 else ('warning' if pct < 90 else 'negative')
 
             with ui.row().classes('items-center gap-4 w-full no-wrap'):
                 ui.icon('dns').classes('text-grey-7')
                 ui.label(state.active_connection_name).classes('text-weight-bold')
-                ui.separator().props('vertical')
+                ui.separator().props('vertical').style('height: 20px')
                 ui.label(f'Disk "{disk["name"]}":').classes('text-grey-7')
                 ui.label(f'{disk["used"]} / {disk["total"]}')
                 ui.linear_progress(
-                    value=pct / 100,
+                    value=pct / 100.0,
                     color=color,
-                    track_color='grey-3',
-                ).props('rounded').classes('flex-grow').style('max-width: 200px; height: 8px')
+                ).props('rounded track-color=grey-3').style('max-width: 200px; height: 8px')
                 ui.label(f'{pct}%').classes(f'text-weight-bold text-{color}')
 
 
@@ -422,8 +426,8 @@ def main_page():
         # RIGHT SIDE: server info bar + Tables + Table Details
         with ui.column().classes('flex-grow gap-2 overflow-hidden'):
             # Server info bar
-            with ui.card().classes('q-pa-sm w-full').props('flat bordered'):
-                server_info_bar = ui.row().classes('w-full')
+            server_info_bar = ui.card().classes('q-pa-sm w-full').props('flat bordered')
+            server_info_bar.set_visibility(False)
 
             # Tables + Table Details row
             with ui.row().classes('w-full flex-nowrap gap-2 flex-grow overflow-hidden'):
