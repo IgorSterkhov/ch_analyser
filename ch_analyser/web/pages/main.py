@@ -1,4 +1,4 @@
-"""Single-page 3-panel layout: Connections | Tables | Columns."""
+"""Single-page layout: Connections | Server Info + Tables + Table Details."""
 
 from nicegui import ui
 
@@ -14,7 +14,7 @@ from ch_analyser.web.components.connection_dialog import connection_dialog
 _connecting_name: str | None = None
 
 
-def _build_connections_panel(conn_container, tables_panel, columns_panel):
+def _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar):
     """Render the list of connections into conn_container."""
     conn_container.clear()
     connections = state.conn_manager.list_connections()
@@ -33,7 +33,7 @@ def _build_connections_panel(conn_container, tables_panel, columns_panel):
             bg = 'bg-blue-1' if is_active else ''
 
             card = ui.card().classes(f'w-full q-pa-xs q-mb-xs cursor-pointer {bg}').props('flat bordered')
-            card.on('click', lambda c=cfg: _on_connect(c, conn_container, tables_panel, columns_panel))
+            card.on('click', lambda c=cfg: _on_connect(c, conn_container, tables_panel, columns_panel, server_info_bar))
 
             with card:
                 with ui.row().classes('items-center w-full justify-between no-wrap'):
@@ -50,15 +50,15 @@ def _build_connections_panel(conn_container, tables_panel, columns_panel):
                             with ui.menu():
                                 ui.menu_item(
                                     'Edit',
-                                    on_click=lambda c=cfg: _on_edit(c, conn_container, tables_panel, columns_panel),
+                                    on_click=lambda c=cfg: _on_edit(c, conn_container, tables_panel, columns_panel, server_info_bar),
                                 )
                                 ui.menu_item(
                                     'Delete',
-                                    on_click=lambda c=cfg: _on_delete(c, conn_container, tables_panel, columns_panel),
+                                    on_click=lambda c=cfg: _on_delete(c, conn_container, tables_panel, columns_panel, server_info_bar),
                                 )
 
 
-def _on_connect(cfg, conn_container, tables_panel, columns_panel):
+def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_bar):
     global _connecting_name
 
     # Don't reconnect if already connected to this one
@@ -69,7 +69,7 @@ def _on_connect(cfg, conn_container, tables_panel, columns_panel):
         # Show "Connecting..." state
         _connecting_name = cfg.name
         state.active_connection_name = None
-        _build_connections_panel(conn_container, tables_panel, columns_panel)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar)
 
         if state.client and state.client.connected:
             state.client.disconnect()
@@ -81,29 +81,31 @@ def _on_connect(cfg, conn_container, tables_panel, columns_panel):
         state.active_connection_name = cfg.name
         _connecting_name = None
 
-        _build_connections_panel(conn_container, tables_panel, columns_panel)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar)
+        _build_server_info_bar(server_info_bar)
         _load_tables(tables_panel, columns_panel)
         _clear_columns(columns_panel)
     except Exception as ex:
         _connecting_name = None
         state.active_connection_name = None
-        _build_connections_panel(conn_container, tables_panel, columns_panel)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar)
+        _build_server_info_bar(server_info_bar)
         ui.notify(f'Connection failed: {ex}', type='negative')
 
 
-def _on_edit(cfg, conn_container, tables_panel, columns_panel):
+def _on_edit(cfg, conn_container, tables_panel, columns_panel, server_info_bar):
     def save(new_cfg, old_name=cfg.name):
         try:
             state.conn_manager.update_connection(old_name, new_cfg)
             ui.notify(f'Updated "{new_cfg.name}"', type='positive')
-            _build_connections_panel(conn_container, tables_panel, columns_panel)
+            _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar)
         except Exception as ex:
             ui.notify(str(ex), type='negative')
 
     connection_dialog(on_save=save, existing=cfg)
 
 
-def _on_delete(cfg, conn_container, tables_panel, columns_panel):
+def _on_delete(cfg, conn_container, tables_panel, columns_panel, server_info_bar):
     try:
         state.conn_manager.delete_connection(cfg.name)
         if state.active_connection_name == cfg.name:
@@ -114,8 +116,9 @@ def _on_delete(cfg, conn_container, tables_panel, columns_panel):
             state.active_connection_name = None
             _clear_tables(tables_panel)
             _clear_columns(columns_panel)
+            _build_server_info_bar(server_info_bar)
         ui.notify(f'Deleted "{cfg.name}"', type='positive')
-        _build_connections_panel(conn_container, tables_panel, columns_panel)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar)
     except Exception as ex:
         ui.notify(str(ex), type='negative')
 
@@ -360,6 +363,40 @@ def _clear_columns(columns_panel):
         ui.label('Select a table.').classes('text-grey-7')
 
 
+def _build_server_info_bar(bar_container):
+    """Render server disk info into the bar container."""
+    bar_container.clear()
+    service = state.service
+    if not service or not state.active_connection_name:
+        return
+
+    try:
+        disks = service.get_disk_info()
+    except Exception:
+        return
+
+    if not disks:
+        return
+
+    with bar_container:
+        for disk in disks:
+            pct = disk['usage_percent']
+            color = 'positive' if pct < 70 else ('warning' if pct < 90 else 'negative')
+
+            with ui.row().classes('items-center gap-4 w-full no-wrap'):
+                ui.icon('dns').classes('text-grey-7')
+                ui.label(state.active_connection_name).classes('text-weight-bold')
+                ui.separator().props('vertical')
+                ui.label(f'Disk "{disk["name"]}":').classes('text-grey-7')
+                ui.label(f'{disk["used"]} / {disk["total"]}')
+                ui.linear_progress(
+                    value=pct / 100,
+                    color=color,
+                    track_color='grey-3',
+                ).props('rounded').classes('flex-grow').style('max-width: 200px; height: 8px')
+                ui.label(f'{pct}%').classes(f'text-weight-bold text-{color}')
+
+
 @ui.page('/')
 def main_page():
     if not require_auth():
@@ -377,26 +414,35 @@ def main_page():
             # Placeholder — will be set after center/right panels are created
             tables_panel = None
             columns_panel = None
+            server_info_bar = None
 
             # Add button for admin — placed outside conn_container so it survives rebuilds
             add_btn_container = ui.column().classes('w-full')
 
-        # CENTER: Tables
-        with ui.card().classes('q-pa-sm overflow-auto').style('width: 40%'):
-            ui.label('Tables').classes('text-h6 q-mb-sm')
-            tables_panel = ui.column().classes('w-full')
-            with tables_panel:
-                ui.label('Select a connection.').classes('text-grey-7')
+        # RIGHT SIDE: server info bar + Tables + Table Details
+        with ui.column().classes('flex-grow gap-2 overflow-hidden'):
+            # Server info bar
+            with ui.card().classes('q-pa-sm w-full').props('flat bordered'):
+                server_info_bar = ui.row().classes('w-full')
 
-        # RIGHT: Columns
-        with ui.card().classes('q-pa-sm overflow-auto flex-grow'):
-            ui.label('Columns').classes('text-h6 q-mb-sm')
-            columns_panel = ui.column().classes('w-full')
-            with columns_panel:
-                ui.label('Select a table.').classes('text-grey-7')
+            # Tables + Table Details row
+            with ui.row().classes('w-full flex-nowrap gap-2 flex-grow overflow-hidden'):
+                # CENTER: Tables
+                with ui.card().classes('q-pa-sm overflow-auto').style('width: 45%'):
+                    ui.label('Tables').classes('text-h6 q-mb-sm')
+                    tables_panel = ui.column().classes('w-full')
+                    with tables_panel:
+                        ui.label('Select a connection.').classes('text-grey-7')
+
+                # RIGHT: Table Details
+                with ui.card().classes('q-pa-sm overflow-auto flex-grow'):
+                    ui.label('Table Details').classes('text-h6 q-mb-sm')
+                    columns_panel = ui.column().classes('w-full')
+                    with columns_panel:
+                        ui.label('Select a table.').classes('text-grey-7')
 
     # Build connections list
-    _build_connections_panel(conn_container, tables_panel, columns_panel)
+    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar)
 
     # Add button — outside conn_container, won't be cleared on rebuild
     if is_admin():
@@ -405,7 +451,7 @@ def main_page():
                 try:
                     state.conn_manager.add_connection(cfg)
                     ui.notify(f'Added "{cfg.name}"', type='positive')
-                    _build_connections_panel(conn_container, tables_panel, columns_panel)
+                    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar)
                 except Exception as ex:
                     ui.notify(str(ex), type='negative')
             connection_dialog(on_save=save)
@@ -415,6 +461,7 @@ def main_page():
                 'color=primary dense'
             ).classes('q-mt-sm w-full')
 
-    # If already connected, show tables
+    # If already connected, show tables and server info
     if state.service:
+        _build_server_info_bar(server_info_bar)
         _load_tables(tables_panel, columns_panel)

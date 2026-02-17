@@ -113,6 +113,23 @@ class AnalysisService:
             logger.error("Failed to get columns for %s: %s", full_table_name, e)
             return []
 
+    def get_disk_info(self) -> list[dict]:
+        try:
+            rows = self._client.execute(
+                "SELECT "
+                "  name, "
+                "  formatReadableSize(total_space) AS total, "
+                "  formatReadableSize(total_space - free_space) AS used, "
+                "  total_space AS total_bytes, "
+                "  (total_space - free_space) AS used_bytes, "
+                "  round((total_space - free_space) * 100.0 / total_space, 1) AS usage_percent "
+                "FROM system.disks"
+            )
+            return rows
+        except Exception as e:
+            logger.warning("Failed to get disk info: %s", e)
+            return []
+
     def get_query_history(self, full_table_name: str, limit: int = 200) -> list[dict]:
         try:
             rows = self._client.execute(
