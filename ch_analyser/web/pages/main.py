@@ -183,9 +183,9 @@ def _load_tables(tables_panel, columns_panel):
              ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
             {'name': 'replicated', 'label': 'R', 'field': 'replicated', 'align': 'center'},
             {'name': 'refs', 'label': 'Refs', 'field': 'refs_cnt', 'align': 'center', 'sortable': True},
-            {'name': 'ttl', 'label': 'TTL', 'field': 'ttl', 'align': 'left'},
             {'name': 'last_select', 'label': 'Last SELECT', 'field': 'last_select', 'align': 'center'},
             {'name': 'last_insert', 'label': 'Last INSERT', 'field': 'last_insert', 'align': 'center'},
+            {'name': 'ttl', 'label': 'TTL', 'field': 'ttl', 'align': 'left'},
         ]
         rows = [
             {
@@ -229,9 +229,9 @@ def _load_tables(tables_panel, columns_panel):
                            @click.stop="$parent.$emit('show-refs', props.row)" />
                     <span v-else class="text-grey-5">0</span>
                 </q-td>
-                <q-td key="ttl" :props="props">{{ props.row.ttl || '-' }}</q-td>
                 <q-td key="last_select" :props="props">{{ props.row.last_select }}</q-td>
                 <q-td key="last_insert" :props="props">{{ props.row.last_insert }}</q-td>
+                <q-td key="ttl" :props="props">{{ props.row.ttl || '-' }}</q-td>
             </q-tr>
             ''',
         )
