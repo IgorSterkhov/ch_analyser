@@ -134,6 +134,22 @@ def _on_delete(cfg, conn_container, tables_panel, columns_panel, server_info_bar
         ui.notify(str(ex), type='negative')
 
 
+def _show_refs_dialog(title: str, refs_list: list[str]):
+    """Show a dialog with a list of referencing entities and a Copy button."""
+    with ui.dialog() as dlg, ui.card().classes('q-pa-md').style('min-width: 400px'):
+        ui.label(f'References: {title}').classes('text-h6 q-mb-sm')
+        text = '\n'.join(refs_list)
+        for ref in refs_list:
+            ui.label(ref).classes('text-body2')
+        with ui.row().classes('w-full justify-end q-mt-md gap-2'):
+            ui.button('Copy', icon='content_copy',
+                      on_click=lambda: ui.run_javascript(
+                          f'navigator.clipboard.writeText({json.dumps(text)})'
+                      )).props('flat')
+            ui.button('Close', on_click=dlg.close).props('flat')
+    dlg.open()
+
+
 def _load_tables(tables_panel, columns_panel):
     """Fetch and render tables into the center panel."""
     tables_panel.clear()
@@ -150,6 +166,12 @@ def _load_tables(tables_panel, columns_panel):
             ui.notify(f'Failed to load tables: {ex}', type='negative')
         return
 
+    # Get references for all tables
+    try:
+        refs = service.get_table_references()
+    except Exception:
+        refs = {}
+
     with tables_panel:
         if not data:
             ui.label('No tables found.').classes('text-grey-7')
@@ -159,6 +181,9 @@ def _load_tables(tables_panel, columns_panel):
             {'name': 'name', 'label': 'Table', 'field': 'name', 'align': 'left', 'sortable': True},
             {'name': 'size', 'label': 'Size', 'field': 'size', 'align': 'right', 'sortable': True,
              ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
+            {'name': 'replicated', 'label': 'R', 'field': 'replicated', 'align': 'center'},
+            {'name': 'refs', 'label': 'Refs', 'field': 'refs_cnt', 'align': 'center', 'sortable': True},
+            {'name': 'ttl', 'label': 'TTL', 'field': 'ttl', 'align': 'left'},
             {'name': 'last_select', 'label': 'Last SELECT', 'field': 'last_select', 'align': 'center'},
             {'name': 'last_insert', 'label': 'Last INSERT', 'field': 'last_insert', 'align': 'center'},
         ]
@@ -167,6 +192,10 @@ def _load_tables(tables_panel, columns_panel):
                 'name': t['name'],
                 'size': t['size'],
                 'size_bytes': t['size_bytes'],
+                'replicated': t.get('replicated', False),
+                'refs_cnt': len(refs.get(t['name'], [])),
+                'refs_list': refs.get(t['name'], []),
+                'ttl': t.get('ttl', ''),
                 'last_select': t['last_select'],
                 'last_insert': t['last_insert'],
             }
@@ -191,6 +220,16 @@ def _load_tables(tables_panel, columns_panel):
                    ">
                 <q-td key="name" :props="props">{{ props.row.name }}</q-td>
                 <q-td key="size" :props="props">{{ props.row.size }}</q-td>
+                <q-td key="replicated" :props="props">
+                    <q-icon v-if="props.row.replicated" name="sync" color="primary" size="xs" />
+                </q-td>
+                <q-td key="refs" :props="props">
+                    <q-btn v-if="props.row.refs_cnt > 0" flat dense size="sm"
+                           :label="String(props.row.refs_cnt)" color="primary"
+                           @click.stop="$parent.$emit('show-refs', props.row)" />
+                    <span v-else class="text-grey-5">0</span>
+                </q-td>
+                <q-td key="ttl" :props="props">{{ props.row.ttl || '-' }}</q-td>
                 <q-td key="last_select" :props="props">{{ props.row.last_select }}</q-td>
                 <q-td key="last_insert" :props="props">{{ props.row.last_insert }}</q-td>
             </q-tr>
@@ -232,9 +271,35 @@ def _load_tables(tables_panel, columns_panel):
 
         tbl.on('row-click', on_row_click)
 
-        ui.button('Refresh', icon='refresh', on_click=lambda: _load_tables(tables_panel, columns_panel)).props(
-            'flat dense color=primary'
-        ).classes('q-mt-sm')
+        def on_show_refs(e):
+            row = e.args
+            _show_refs_dialog(row['name'], row.get('refs_list', []))
+
+        tbl.on('show-refs', on_show_refs)
+
+        # --- Show generated SQL button ---
+        def _show_tables_sql():
+            raw_sql = service.get_tables_sql()
+            formatted = format_clickhouse_sql(raw_sql)
+            escaped = html.escape(formatted)
+            with ui.dialog() as dlg, ui.card().classes('w-full max-w-3xl q-pa-md'):
+                ui.label('Generated Queries (Tables)').classes('text-h6 q-mb-sm')
+                ui.html(f'<pre style="white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow:auto">{escaped}</pre>')
+                with ui.row().classes('w-full justify-end q-mt-md gap-2'):
+                    ui.button('Copy', icon='content_copy',
+                              on_click=lambda: ui.run_javascript(
+                                  f'navigator.clipboard.writeText({json.dumps(formatted)})'
+                              )).props('flat')
+                    ui.button('Close', on_click=dlg.close).props('flat')
+            dlg.open()
+
+        with ui.row().classes('q-mt-sm gap-2'):
+            ui.button('Refresh', icon='refresh', on_click=lambda: _load_tables(tables_panel, columns_panel)).props(
+                'flat dense color=primary'
+            )
+            ui.button(icon='code', on_click=_show_tables_sql).props(
+                'flat dense color=primary'
+            ).tooltip('Show generated SQL')
 
 
 def _load_columns(columns_panel, full_table_name: str):
@@ -270,12 +335,19 @@ def _render_columns_tab(service, full_table_name: str):
         ui.label('No columns found.').classes('text-grey-7')
         return
 
+    # Get column-level references
+    try:
+        col_refs = service.get_column_references(full_table_name)
+    except Exception:
+        col_refs = {}
+
     columns = [
         {'name': 'name', 'label': 'Column', 'field': 'name', 'align': 'left', 'sortable': True},
         {'name': 'type', 'label': 'Type', 'field': 'type', 'align': 'left', 'sortable': True},
         {'name': 'codec', 'label': 'Codec', 'field': 'codec', 'align': 'left'},
         {'name': 'size', 'label': 'Size', 'field': 'size', 'align': 'right', 'sortable': True,
          ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
+        {'name': 'refs', 'label': 'Refs', 'field': 'refs_cnt', 'align': 'center', 'sortable': True},
     ]
     rows = [
         {
@@ -284,16 +356,42 @@ def _render_columns_tab(service, full_table_name: str):
             'codec': c.get('codec', ''),
             'size': c.get('size', '0 B'),
             'size_bytes': c.get('size_bytes', 0),
+            'refs_cnt': len(col_refs.get(c['name'], [])),
+            'refs_list': col_refs.get(c['name'], []),
         }
         for c in data
     ]
 
-    ui.table(
+    tbl = ui.table(
         columns=columns,
         rows=rows,
         row_key='name',
         pagination={'rowsPerPage': 0, 'sortBy': 'size', 'descending': True},
     ).classes('w-full')
+
+    tbl.add_slot(
+        'body',
+        r'''
+        <q-tr :props="props">
+            <q-td key="name" :props="props">{{ props.row.name }}</q-td>
+            <q-td key="type" :props="props">{{ props.row.type }}</q-td>
+            <q-td key="codec" :props="props">{{ props.row.codec }}</q-td>
+            <q-td key="size" :props="props">{{ props.row.size }}</q-td>
+            <q-td key="refs" :props="props">
+                <q-btn v-if="props.row.refs_cnt > 0" flat dense size="sm"
+                       :label="String(props.row.refs_cnt)" color="primary"
+                       @click.stop="$parent.$emit('show-refs', props.row)" />
+                <span v-else class="text-grey-5">0</span>
+            </q-td>
+        </q-tr>
+        ''',
+    )
+
+    def on_show_col_refs(e):
+        row = e.args
+        _show_refs_dialog(row['name'], row.get('refs_list', []))
+
+    tbl.on('show-refs', on_show_col_refs)
 
 
 def _render_query_history_tab(service, full_table_name: str):
@@ -401,7 +499,11 @@ def _render_query_history_tab(service, full_table_name: str):
 
     # --- Show generated query button ---
     def _show_generated_query():
-        raw_sql = service.get_query_history_sql(full_table_name)
+        raw_sql = service.get_query_history_sql(
+            full_table_name,
+            users=sorted(active_users) if len(active_users) < len(unique_users) else None,
+            kinds=sorted(active_kinds) if len(active_kinds) < len(unique_kinds) else None,
+        )
         formatted = format_clickhouse_sql(raw_sql)
         escaped = html.escape(formatted)
         with ui.dialog() as dlg, ui.card().classes('w-full max-w-3xl q-pa-md'):
@@ -550,8 +652,11 @@ def main_page():
     if not require_auth():
         return
 
-    # CSS for selected table row highlight and drawer toggle button
+    # CSS for selected table row highlight, drawer toggle button, and scroll fix
     ui.add_css('''
+        .q-table__middle {
+            max-height: none !important;
+        }
         .table-row-active {
             background-color: #1976d2 !important;
         }
@@ -624,14 +729,14 @@ def main_page():
         # Tables + Table Details row
         with ui.row().classes('w-full flex-nowrap gap-2 flex-grow overflow-hidden'):
             # CENTER: Tables
-            with ui.card().classes('q-pa-sm overflow-auto').style('width: 45%'):
+            with ui.card().classes('q-pa-sm overflow-auto').style('width: 45%; max-height: calc(100vh - 150px)'):
                 ui.label('Tables').classes('text-h6 q-mb-sm')
                 tables_panel = ui.column().classes('w-full')
                 with tables_panel:
                     ui.label('Select a connection.').classes('text-grey-7')
 
             # RIGHT: Table Details
-            with ui.card().classes('q-pa-sm overflow-auto flex-grow'):
+            with ui.card().classes('q-pa-sm overflow-auto flex-grow').style('max-height: calc(100vh - 150px)'):
                 ui.label('Table Details').classes('text-h6 q-mb-sm')
                 columns_panel = ui.column().classes('w-full')
                 with columns_panel:

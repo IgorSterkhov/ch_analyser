@@ -40,10 +40,12 @@ def show_docs_dialog():
             ui.space()
             ui.button(icon='close', on_click=dlg.close).props('flat dense color=white')
 
-        content_container = ui.column().classes('w-full q-pa-lg overflow-auto flex-grow')
         nav_buttons: dict[str, ui.button] = {}
+        # content_container will be set below inside the row layout
+        content_container = None
 
         def _show(filename: str):
+            nonlocal content_container
             raw = _read_doc(filename)
             processed = _preprocess_links(raw)
             content_container.clear()
@@ -58,7 +60,7 @@ def show_docs_dialog():
                 btn.update()
 
         # Body: sidebar + content
-        with ui.row().classes('w-full flex-grow overflow-hidden').style('min-height: 0'):
+        with ui.row().classes('w-full flex-grow overflow-hidden').style('height: calc(100vh - 80px)'):
             # Sidebar
             with ui.column().classes('q-pa-md gap-1').style('width: 240px; min-width: 240px'):
                 for label, fname in USER_DOCS:
