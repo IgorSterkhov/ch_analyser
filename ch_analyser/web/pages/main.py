@@ -335,30 +335,54 @@ def _render_query_history_tab(service, full_table_name: str):
     # Will be set after table creation
     tbl_ref: list[ui.table] = []
 
-    def _apply_filters():
-        tbl = tbl_ref[0]
-        tbl.rows = [r for r in all_rows if r['user'] in active_users and r['query_kind'] in active_kinds]
-        tbl.update()
+    def _update_buttons_and_table():
+        """Recalculate dependent filters and update table from cached data."""
+        available_kinds = set(r['query_kind'] for r in all_rows if r['user'] in active_users)
+        available_users = set(r['user'] for r in all_rows if r['query_kind'] in active_kinds)
+
+        for u, btn in user_buttons.items():
+            if u not in available_users:
+                btn.props('push color=grey-4 text-color=grey-5 disable')
+            elif u in active_users:
+                btn.props('push color=primary text-color=white')
+                btn.props(remove='disable')
+            else:
+                btn.props('push color=grey-4 text-color=grey-8')
+                btn.props(remove='disable')
+            btn.update()
+
+        for k, btn in kind_buttons.items():
+            if k not in available_kinds:
+                btn.props('push color=grey-4 text-color=grey-5 disable')
+            elif k in active_kinds:
+                btn.props('push color=primary text-color=white')
+                btn.props(remove='disable')
+            else:
+                btn.props('push color=grey-4 text-color=grey-8')
+                btn.props(remove='disable')
+            btn.update()
+
+        effective_users = active_users & available_users
+        effective_kinds = active_kinds & available_kinds
+        tbl_ref[0].rows = [
+            r for r in all_rows
+            if r['user'] in effective_users and r['query_kind'] in effective_kinds
+        ]
+        tbl_ref[0].update()
 
     def toggle_user(user):
         if user in active_users:
             active_users.discard(user)
-            user_buttons[user].props('push color=grey-4 text-color=grey-8')
         else:
             active_users.add(user)
-            user_buttons[user].props('push color=primary text-color=white')
-        user_buttons[user].update()
-        _apply_filters()
+        _update_buttons_and_table()
 
     def toggle_kind(kind):
         if kind in active_kinds:
             active_kinds.discard(kind)
-            kind_buttons[kind].props('push color=grey-4 text-color=grey-8')
         else:
             active_kinds.add(kind)
-            kind_buttons[kind].props('push color=primary text-color=white')
-        kind_buttons[kind].update()
-        _apply_filters()
+        _update_buttons_and_table()
 
     with ui.row().classes('w-full items-center gap-4 q-mb-sm'):
         ui.label('User:').classes('text-caption text-grey-7')

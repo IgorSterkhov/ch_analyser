@@ -1,5 +1,7 @@
 from nicegui import ui, app
 
+from ch_analyser.web.components.docs_viewer import show_docs_dialog
+
 
 def header(drawer=None):
     """Shared header with app title, user info, and logout."""
@@ -10,6 +12,7 @@ def header(drawer=None):
             ui.label('ClickHouse Analyser').classes('text-h6 text-white')
 
         with ui.row().classes('items-center gap-4'):
+            ui.button(icon='help_outline', on_click=show_docs_dialog).props('flat dense color=white')
             username = app.storage.user.get('username', '')
             role = app.storage.user.get('role', '')
             if username:
