@@ -77,7 +77,7 @@ class AnalysisService:
             for r in rows:
                 ddl = r["create_table_query"] or ""
                 ttl_match = re.search(
-                    r'\bTTL\s+(.+?)(?=\s+(?:DELETE|TO\s+DISK|TO\s+VOLUME|RECOMPRESS|SETTINGS)\b|,|\Z)',
+                    r'\bTTL\s+(.+?)(?=\s+(?:DELETE|TO\s+DISK|TO\s+VOLUME|RECOMPRESS|SETTINGS|ENGINE)\b|,|\Z)',
                     ddl, re.IGNORECASE,
                 )
                 if ttl_match:
