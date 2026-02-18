@@ -145,3 +145,14 @@ class AnalysisService:
         except Exception as e:
             logger.error("Failed to get query history for %s: %s", full_table_name, e)
             return []
+
+    def get_query_history_sql(self, full_table_name: str, limit: int = 200) -> str:
+        """Return the SQL query used by get_query_history (with parameters substituted)."""
+        return (
+            "SELECT event_time, user, query_kind, query "
+            "FROM system.query_log "
+            "WHERE type = 'QueryFinish' "
+            f"AND has(tables, '{full_table_name}') "
+            "ORDER BY event_time DESC "
+            f"LIMIT {limit}"
+        )

@@ -1,6 +1,7 @@
 """Single-page layout: Connections drawer | Server Info + Tables + Table Details."""
 
 import html
+import json
 import re
 
 from nicegui import ui
@@ -373,6 +374,26 @@ def _render_query_history_tab(service, full_table_name: str):
                 btn = ui.button(k, on_click=lambda k=k: toggle_kind(k))
                 btn.props('push color=primary text-color=white no-caps')
                 kind_buttons[k] = btn
+
+    # --- Show generated query button ---
+    def _show_generated_query():
+        raw_sql = service.get_query_history_sql(full_table_name)
+        formatted = format_clickhouse_sql(raw_sql)
+        escaped = html.escape(formatted)
+        with ui.dialog() as dlg, ui.card().classes('w-full max-w-3xl q-pa-md'):
+            ui.label('Generated Query').classes('text-h6 q-mb-sm')
+            ui.html(f'<pre style="white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow:auto">{escaped}</pre>')
+            with ui.row().classes('w-full justify-end q-mt-md gap-2'):
+                ui.button('Copy', icon='content_copy',
+                          on_click=lambda: ui.run_javascript(
+                              f'navigator.clipboard.writeText({json.dumps(formatted)})'
+                          )).props('flat')
+                ui.button('Close', on_click=dlg.close).props('flat')
+        dlg.open()
+
+    ui.button(icon='code', on_click=_show_generated_query).props(
+        'flat dense color=primary'
+    ).tooltip('Show generated SQL')
 
     # --- Table ---
     columns = [
