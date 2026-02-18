@@ -1,10 +1,14 @@
 """Single-page layout: Connections drawer | Server Info + Tables + Table Details."""
 
+import html
+import re
+
 from nicegui import ui
 
 from ch_analyser.client import CHClient
 from ch_analyser.config import ConnectionConfig
 from ch_analyser.services import AnalysisService
+from ch_analyser.sql_format import format_clickhouse_sql
 import ch_analyser.web.state as state
 from ch_analyser.web.auth_helpers import require_auth, is_admin
 from ch_analyser.web.components.header import header
@@ -306,13 +310,14 @@ def _render_query_history_tab(service, full_table_name: str):
     # Search/filter input
     filter_input = ui.input(placeholder='Filter...').props('dense clearable').classes('q-mb-sm w-full')
 
-    columns = [
-        {'name': 'event_time', 'label': 'Time', 'field': 'event_time', 'align': 'left', 'sortable': True},
-        {'name': 'user', 'label': 'User', 'field': 'user', 'align': 'left', 'sortable': True},
-        {'name': 'query_kind', 'label': 'Kind', 'field': 'query_kind', 'align': 'center', 'sortable': True},
-        {'name': 'query', 'label': 'Query', 'field': 'query_short', 'align': 'left'},
-    ]
-    rows = [
+    # --- Toggle filters ---
+    unique_users = sorted(set(r['user'] for r in data))
+    unique_kinds = sorted(set(r['query_kind'] for r in data))
+
+    active_users = set(unique_users)
+    active_kinds = set(unique_kinds)
+
+    all_rows = [
         {
             'event_time': r['event_time'],
             'user': r['user'],
@@ -323,12 +328,67 @@ def _render_query_history_tab(service, full_table_name: str):
         for r in data
     ]
 
+    user_buttons: dict[str, ui.button] = {}
+    kind_buttons: dict[str, ui.button] = {}
+
+    # Will be set after table creation
+    tbl_ref: list[ui.table] = []
+
+    def _apply_filters():
+        tbl = tbl_ref[0]
+        tbl.rows = [r for r in all_rows if r['user'] in active_users and r['query_kind'] in active_kinds]
+        tbl.update()
+
+    def toggle_user(user):
+        if user in active_users:
+            active_users.discard(user)
+            user_buttons[user].props('push color=grey-4 text-color=grey-8')
+        else:
+            active_users.add(user)
+            user_buttons[user].props('push color=primary text-color=white')
+        user_buttons[user].update()
+        _apply_filters()
+
+    def toggle_kind(kind):
+        if kind in active_kinds:
+            active_kinds.discard(kind)
+            kind_buttons[kind].props('push color=grey-4 text-color=grey-8')
+        else:
+            active_kinds.add(kind)
+            kind_buttons[kind].props('push color=primary text-color=white')
+        kind_buttons[kind].update()
+        _apply_filters()
+
+    with ui.row().classes('w-full items-center gap-4 q-mb-sm'):
+        ui.label('User:').classes('text-caption text-grey-7')
+        with ui.element('q-btn-group').props('push'):
+            for u in unique_users:
+                btn = ui.button(u, on_click=lambda u=u: toggle_user(u))
+                btn.props('push color=primary text-color=white no-caps')
+                user_buttons[u] = btn
+
+        ui.label('Kind:').classes('text-caption text-grey-7')
+        with ui.element('q-btn-group').props('push'):
+            for k in unique_kinds:
+                btn = ui.button(k, on_click=lambda k=k: toggle_kind(k))
+                btn.props('push color=primary text-color=white no-caps')
+                kind_buttons[k] = btn
+
+    # --- Table ---
+    columns = [
+        {'name': 'event_time', 'label': 'Time', 'field': 'event_time', 'align': 'left', 'sortable': True},
+        {'name': 'user', 'label': 'User', 'field': 'user', 'align': 'left', 'sortable': True},
+        {'name': 'query_kind', 'label': 'Kind', 'field': 'query_kind', 'align': 'center', 'sortable': True},
+        {'name': 'query', 'label': 'Query', 'field': 'query_short', 'align': 'left'},
+    ]
+
     tbl = ui.table(
         columns=columns,
-        rows=rows,
+        rows=list(all_rows),
         row_key='event_time',
         pagination={'rowsPerPage': 20, 'sortBy': 'event_time', 'descending': True},
     ).classes('w-full')
+    tbl_ref.append(tbl)
 
     # Bind filter input to table's built-in filter
     tbl.bind_filter_from(filter_input, 'value')
@@ -341,20 +401,49 @@ def _render_query_history_tab(service, full_table_name: str):
             <q-td key="user" :props="props">{{ props.row.user }}</q-td>
             <q-td key="query_kind" :props="props">{{ props.row.query_kind }}</q-td>
             <q-td key="query" :props="props">
-                {{ props.row.query_short }}
                 <q-btn flat dense size="sm" icon="visibility" color="primary"
-                       @click.stop="$parent.$emit('show-query', props.row)" />
+                       @click.stop="$parent.$emit('show-query', props.row)"
+                       class="q-mr-xs" />
+                {{ props.row.query_short }}
             </q-td>
         </q-tr>
         ''',
     )
 
+    def _highlight_table(sql_text, table_name):
+        """Highlight table name occurrences in already-escaped HTML."""
+        parts = [re.escape(table_name)]
+        if '.' in table_name:
+            parts.append(re.escape(table_name.split('.', 1)[1]))
+        pattern = '|'.join(parts)
+        return re.sub(
+            f'({pattern})',
+            r'<mark style="background:#fff176;padding:1px 3px;border-radius:2px">\1</mark>',
+            sql_text,
+        )
+
     def on_show_query(e):
         row = e.args
+        formatted = format_clickhouse_sql(row['query_full'])
+        escaped = html.escape(formatted)
+        highlighted = _highlight_table(escaped, full_table_name)
+
         with ui.dialog() as dlg, ui.card().classes('w-full max-w-3xl q-pa-md'):
             ui.label('Query').classes('text-h6 q-mb-sm')
-            ui.html(f'<pre style="white-space: pre-wrap; word-break: break-all; max-height: 60vh; overflow: auto;">{row["query_full"]}</pre>')
-            with ui.row().classes('w-full justify-end q-mt-md'):
+
+            sql_container = ui.html(
+                f'<pre style="white-space: pre-wrap; word-break: break-all; max-height: 60vh; overflow: auto;">{highlighted}</pre>'
+            )
+
+            def on_highlight_toggle(e_val):
+                content = highlighted if e_val.value else escaped
+                sql_container.content = (
+                    f'<pre style="white-space: pre-wrap; word-break: break-all; max-height: 60vh; overflow: auto;">{content}</pre>'
+                )
+                sql_container.update()
+
+            with ui.row().classes('w-full items-center justify-between q-mt-md'):
+                ui.switch('Highlight table', value=True, on_change=on_highlight_toggle)
                 ui.button('Close', on_click=dlg.close).props('flat')
         dlg.open()
 
