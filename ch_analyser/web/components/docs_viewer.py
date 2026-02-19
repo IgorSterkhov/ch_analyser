@@ -9,6 +9,7 @@ from nicegui import ui
 USER_DOCS = [
     ('Руководство пользователя', 'user-guide.md'),
     ('Руководство администратора', 'admin-guide.md'),
+    ('Релизы', 'releases.md'),
 ]
 
 _DOCS_DIR = Path(__file__).resolve().parents[3] / 'docs'
