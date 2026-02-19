@@ -431,13 +431,30 @@ def _load_columns(columns_panel, full_table_name: str, right_drawer):
             history_tab = ui.tab('Query History')
             flow_tab = ui.tab('Flow')
 
-        with ui.tab_panels(tabs, value=columns_tab).classes('w-full'):
+        loaded_tabs = set()
+
+        with ui.tab_panels(tabs, value=columns_tab).classes('w-full') as tab_panels:
             with ui.tab_panel(columns_tab):
                 _render_columns_tab(service, full_table_name)
-            with ui.tab_panel(history_tab):
-                _render_query_history_tab(service, full_table_name)
-            with ui.tab_panel(flow_tab):
-                _render_flow_tab(service, full_table_name)
+                loaded_tabs.add('Columns')
+            with ui.tab_panel(history_tab) as history_panel:
+                pass
+            with ui.tab_panel(flow_tab) as flow_panel:
+                pass
+
+        def _on_tab_change(e):
+            name = e.value
+            if name in loaded_tabs:
+                return
+            loaded_tabs.add(name)
+            if name == 'Query History':
+                with history_panel:
+                    _render_query_history_tab(service, full_table_name)
+            elif name == 'Flow':
+                with flow_panel:
+                    _render_flow_tab(service, full_table_name)
+
+        tabs.on_value_change(_on_tab_change)
 
 
 def _render_columns_tab(service, full_table_name: str):
