@@ -592,6 +592,9 @@ def _render_query_history_tab(service, full_table_name: str):
                 btn.props(remove='disable')
             btn.update()
 
+    # Direct queries switch state
+    direct_only = [True]
+
     def _refresh():
         """Re-query the server with current filters and rebuild table."""
         users_param = sorted(active_users) if len(active_users) < len(unique_users) else None
@@ -602,21 +605,24 @@ def _render_query_history_tab(service, full_table_name: str):
                 limit=current_limit[0],
                 users=users_param,
                 kinds=kinds_param,
+                direct_only=direct_only[0],
             )
         except Exception as ex:
             ui.notify(f'Failed to load query history: {ex}', type='negative')
             return
 
-        rows = [
-            {
+        rows = []
+        for r in data:
+            row = {
                 'event_time': r['event_time'],
                 'user': r['user'],
                 'query_kind': r['query_kind'],
                 'query_short': r['query'][:50] + ('...' if len(r['query']) > 50 else ''),
                 'query_full': r['query'],
             }
-            for r in data
-        ]
+            if not direct_only[0]:
+                row['direct'] = '+' if r.get('is_direct') else ''
+            rows.append(row)
         _rebuild_table(rows)
 
     def _rebuild_table(rows):
@@ -635,6 +641,25 @@ def _render_query_history_tab(service, full_table_name: str):
                 {'name': 'query_kind', 'label': 'Kind', 'field': 'query_kind', 'align': 'center', 'sortable': True},
                 {'name': 'query', 'label': 'Query', 'field': 'query_short', 'align': 'left'},
             ]
+            if not direct_only[0]:
+                columns.insert(3, {'name': 'direct', 'label': 'Direct', 'field': 'direct', 'align': 'center', 'sortable': True})
+
+            body_slot = r'''
+                <q-tr :props="props">
+                    <q-td key="event_time" :props="props">{{ props.row.event_time }}</q-td>
+                    <q-td key="user" :props="props">{{ props.row.user }}</q-td>
+                    <q-td key="query_kind" :props="props">{{ props.row.query_kind }}</q-td>'''
+            if not direct_only[0]:
+                body_slot += r'''
+                    <q-td key="direct" :props="props">{{ props.row.direct }}</q-td>'''
+            body_slot += r'''
+                    <q-td key="query" :props="props">
+                        <q-btn flat dense size="sm" icon="visibility" color="primary"
+                               @click.stop="$parent.$emit('show-query', props.row)"
+                               class="q-mr-xs" />
+                        {{ props.row.query_short }}
+                    </q-td>
+                </q-tr>'''
 
             tbl = ui.table(
                 columns=columns,
@@ -644,23 +669,7 @@ def _render_query_history_tab(service, full_table_name: str):
             ).classes('w-full')
 
             tbl.bind_filter_from(filter_input, 'value')
-
-            tbl.add_slot(
-                'body',
-                r'''
-                <q-tr :props="props">
-                    <q-td key="event_time" :props="props">{{ props.row.event_time }}</q-td>
-                    <q-td key="user" :props="props">{{ props.row.user }}</q-td>
-                    <q-td key="query_kind" :props="props">{{ props.row.query_kind }}</q-td>
-                    <q-td key="query" :props="props">
-                        <q-btn flat dense size="sm" icon="visibility" color="primary"
-                               @click.stop="$parent.$emit('show-query', props.row)"
-                               class="q-mr-xs" />
-                        {{ props.row.query_short }}
-                    </q-td>
-                </q-tr>
-                ''',
-            )
+            tbl.add_slot('body', body_slot)
 
             def _highlight_table(sql_text, table_name):
                 """Highlight table name occurrences in already-escaped HTML."""
@@ -720,40 +729,23 @@ def _render_query_history_tab(service, full_table_name: str):
         _update_button_states()
         _refresh()
 
-    # --- Filter controls ---
-    with ui.row().classes('w-full items-center gap-4 q-mb-sm flex-wrap'):
-        ui.label('User:').classes('text-caption text-grey-7')
-        with ui.element('q-btn-group').props('push'):
-            for u in unique_users:
-                btn = ui.button(u, on_click=lambda u=u: toggle_user(u))
-                btn.props('push color=primary text-color=white no-caps')
-                user_buttons[u] = btn
+    def reset_users():
+        active_users.clear()
+        _update_button_states()
+        _refresh()
 
-        ui.label('Kind:').classes('text-caption text-grey-7')
-        with ui.element('q-btn-group').props('push'):
-            for k in unique_kinds:
-                btn = ui.button(k, on_click=lambda k=k: toggle_kind(k))
-                btn.props('push color=primary text-color=white no-caps')
-                kind_buttons[k] = btn
+    def reset_kinds():
+        active_kinds.clear()
+        _update_button_states()
+        _refresh()
 
-        ui.label('Limit:').classes('text-caption text-grey-7')
-        ui.select(
-            [50, 100, 200, 500, 1000], value=200,
-            on_change=lambda e: (current_limit.__setitem__(0, e.value), _refresh()),
-        ).props('dense borderless').style('min-width: 80px')
-
-        ui.button('Refresh', icon='refresh', on_click=_refresh).props('flat dense color=primary')
-
-    # Table container for rebuilding (after filters so it renders below them)
-    table_container = ui.column().classes('w-full')
-
-    # --- Show generated query button ---
     def _show_generated_query():
         raw_sql = service.get_query_history_sql(
             full_table_name,
             limit=current_limit[0],
             users=sorted(active_users) if len(active_users) < len(unique_users) else None,
             kinds=sorted(active_kinds) if len(active_kinds) < len(unique_kinds) else None,
+            direct_only=direct_only[0],
         )
         formatted = format_clickhouse_sql(raw_sql)
         escaped = html.escape(formatted)
@@ -766,9 +758,51 @@ def _render_query_history_tab(service, full_table_name: str):
                 ui.button('Close', on_click=dlg.close).props('flat')
         dlg.open()
 
-    ui.button(icon='code', on_click=_show_generated_query).props(
-        'flat dense color=primary'
-    ).tooltip('Show generated SQL')
+    # --- Filter controls ---
+    # Row 1: User filter
+    with ui.row().classes('w-full items-center gap-2 q-mb-xs'):
+        ui.label('User:').classes('text-caption text-grey-7')
+        ui.button(icon='delete_sweep', on_click=reset_users).props(
+            'flat dense size=sm color=grey-7'
+        ).tooltip('Clear all')
+        with ui.element('div').classes('flex flex-wrap gap-1'):
+            for u in unique_users:
+                btn = ui.button(u, on_click=lambda u=u: toggle_user(u))
+                btn.props('push color=primary text-color=white no-caps size=sm')
+                user_buttons[u] = btn
+
+    # Row 2: Kind filter
+    with ui.row().classes('w-full items-center gap-2 q-mb-xs'):
+        ui.label('Kind:').classes('text-caption text-grey-7')
+        ui.button(icon='delete_sweep', on_click=reset_kinds).props(
+            'flat dense size=sm color=grey-7'
+        ).tooltip('Clear all')
+        with ui.element('q-btn-group').props('push'):
+            for k in unique_kinds:
+                btn = ui.button(k, on_click=lambda k=k: toggle_kind(k))
+                btn.props('push color=primary text-color=white no-caps size=sm')
+                kind_buttons[k] = btn
+
+    # Row 3: Limit, Direct toggle, Code button, Refresh
+    with ui.row().classes('w-full items-center gap-4 q-mb-sm'):
+        ui.label('Limit:').classes('text-caption text-grey-7')
+        ui.select(
+            [50, 100, 200, 500, 1000], value=200,
+            on_change=lambda e: (current_limit.__setitem__(0, e.value), _refresh()),
+        ).props('dense borderless').style('min-width: 80px')
+
+        ui.switch('Direct', value=True,
+                  on_change=lambda e: (direct_only.__setitem__(0, e.value), _refresh()),
+                  ).tooltip('Show only queries that directly mention the table name')
+
+        ui.button(icon='code', on_click=_show_generated_query).props(
+            'flat dense color=primary'
+        ).tooltip('Show generated SQL')
+
+        ui.button('Refresh', icon='refresh', on_click=_refresh).props('flat dense color=primary')
+
+    # Table container for rebuilding (after filters so it renders below them)
+    table_container = ui.column().classes('w-full')
 
     # Initial load
     _refresh()
@@ -930,7 +964,7 @@ def _build_server_info_bar(bar_container):
                 ui.label(f'Disk "{disk["name"]}":').classes('text-grey-7')
                 ui.label(f'{disk["used"]} / {disk["total"]}')
                 ui.linear_progress(
-                    value=pct / 100.0,
+                    value=round(pct / 100.0, 3),
                     color=color,
                 ).props('rounded track-color=grey-3').style('max-width: 200px; height: 8px')
                 ui.label(f'{pct:.1f}%').classes(f'text-weight-bold text-{color}')

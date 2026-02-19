@@ -226,10 +226,15 @@ class AnalysisService:
 
     def get_query_history(self, full_table_name: str, limit: int = 200,
                           users: list[str] | None = None,
-                          kinds: list[str] | None = None) -> list[dict]:
+                          kinds: list[str] | None = None,
+                          direct_only: bool = True) -> list[dict]:
+        short_name = full_table_name.split('.', 1)[1] if '.' in full_table_name else full_table_name
         try:
+            select_cols = "event_time, user, query_kind, query"
+            if not direct_only:
+                select_cols += f", positionCaseInsensitive(query, '{short_name}') > 0 AS is_direct"
             parts = [
-                "SELECT event_time, user, query_kind, query "
+                f"SELECT {select_cols} "
                 "FROM system.query_log "
                 "WHERE type = 'QueryFinish' "
                 "AND has(tables, %(table)s)",
@@ -242,6 +247,8 @@ class AnalysisService:
             if kinds:
                 parts.append("AND query_kind IN %(kinds)s")
                 params["kinds"] = kinds
+            if direct_only:
+                parts.append(f"AND positionCaseInsensitive(query, '{short_name}') > 0")
 
             parts.append("ORDER BY event_time DESC")
             parts.append("LIMIT %(limit)s")
@@ -256,10 +263,15 @@ class AnalysisService:
 
     def get_query_history_sql(self, full_table_name: str, limit: int = 200,
                               users: list[str] | None = None,
-                              kinds: list[str] | None = None) -> str:
+                              kinds: list[str] | None = None,
+                              direct_only: bool = True) -> str:
         """Return the SQL query used by get_query_history (with parameters substituted)."""
+        short_name = full_table_name.split('.', 1)[1] if '.' in full_table_name else full_table_name
+        select_cols = "event_time, user, query_kind, query"
+        if not direct_only:
+            select_cols += f", positionCaseInsensitive(query, '{short_name}') > 0 AS is_direct"
         parts = [
-            "SELECT event_time, user, query_kind, query",
+            f"SELECT {select_cols}",
             "FROM system.query_log",
             "WHERE type = 'QueryFinish'",
             f"AND has(tables, '{full_table_name}')",
@@ -270,6 +282,8 @@ class AnalysisService:
         if kinds:
             kind_list = ', '.join(f"'{k}'" for k in kinds)
             parts.append(f"AND query_kind IN ({kind_list})")
+        if direct_only:
+            parts.append(f"AND positionCaseInsensitive(query, '{short_name}') > 0")
         parts.append("ORDER BY event_time DESC")
         parts.append(f"LIMIT {limit}")
         return ' '.join(parts)
@@ -299,16 +313,28 @@ class AnalysisService:
             # Regex with word boundaries to avoid substring false positives
             full_pattern = re.compile(r'\b' + re.escape(target) + r'\b')
             short_pattern = re.compile(r'\b' + re.escape(short) + r'\b')
+            # Pattern to detect target as DESTINATION (TO target in MV DDL)
+            to_full_pattern = re.compile(r'\bTO\s+' + re.escape(target) + r'\b', re.IGNORECASE)
+            to_short_pattern = re.compile(r'\bTO\s+' + re.escape(short) + r'\b', re.IGNORECASE)
             refs = []
             for entity_name, ddl in entities.items():
                 if entity_name == target:
                     continue
+                matched = False
                 # Full name match (any database)
                 if full_pattern.search(ddl):
-                    refs.append(entity_name)
+                    matched = True
                 # Short name match only within the same database
                 elif entity_name.startswith(db + '.') and short_pattern.search(ddl):
-                    refs.append(entity_name)
+                    matched = True
+                if not matched:
+                    continue
+                # Skip if target is the DESTINATION of this entity (MV writes TO target)
+                if to_full_pattern.search(ddl):
+                    continue
+                if entity_name.startswith(db + '.') and to_short_pattern.search(ddl):
+                    continue
+                refs.append(entity_name)
             if refs:
                 references[target] = sorted(refs)
 
@@ -330,19 +356,31 @@ class AnalysisService:
 
         db, short = full_table_name.split('.', 1) if '.' in full_table_name else ('default', full_table_name)
 
-        # Only consider entities that reference our table (word boundary match)
+        # Only consider entities that reference our table as SOURCE (word boundary match)
         full_pattern = re.compile(r'\b' + re.escape(full_table_name) + r'\b')
         short_pattern = re.compile(r'\b' + re.escape(short) + r'\b')
+        # Pattern to detect our table as DESTINATION (TO table in MV DDL)
+        to_full_pattern = re.compile(r'\bTO\s+' + re.escape(full_table_name) + r'\b', re.IGNORECASE)
+        to_short_pattern = re.compile(r'\bTO\s+' + re.escape(short) + r'\b', re.IGNORECASE)
         referring_entities: dict[str, str] = {}
         for r in rows:
             entity = f"{r['database']}.{r['name']}"
             ddl = r['create_table_query'] or ''
             if entity == full_table_name:
                 continue
+            matched = False
             if full_pattern.search(ddl):
-                referring_entities[entity] = ddl
+                matched = True
             elif entity.startswith(db + '.') and short_pattern.search(ddl):
-                referring_entities[entity] = ddl
+                matched = True
+            if not matched:
+                continue
+            # Skip if our table is the DESTINATION of this entity
+            if to_full_pattern.search(ddl):
+                continue
+            if entity.startswith(db + '.') and to_short_pattern.search(ddl):
+                continue
+            referring_entities[entity] = ddl
 
         # Get column names of our table
         try:
