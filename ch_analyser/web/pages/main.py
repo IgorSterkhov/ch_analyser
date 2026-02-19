@@ -724,7 +724,7 @@ def _flow_to_mermaid(flow: dict, highlight_table: str = '') -> str:
     if not flow['nodes'] and not flow['edges']:
         return ''
 
-    lines = ['graph LR']
+    lines = ['graph TB']
     for node in flow['nodes']:
         node_id = re.sub(r'[^a-zA-Z0-9_]', '_', node['id'])
         label = node['id']
@@ -745,6 +745,12 @@ def _flow_to_mermaid(flow: dict, highlight_table: str = '') -> str:
     return '\n'.join(lines)
 
 
+def _render_mermaid_scrollable(mermaid_text: str):
+    """Render a Mermaid diagram inside a scrollable container at readable scale."""
+    with ui.scroll_area().classes('w-full').style('max-height: 60vh'):
+        ui.mermaid(mermaid_text).classes('mermaid-flow')
+
+
 def _render_flow_tab(service, full_table_name: str):
     """Render flow diagrams using Mermaid."""
     with ui.tabs().classes('w-full').props('dense') as sub_tabs:
@@ -762,7 +768,7 @@ def _render_flow_tab(service, full_table_name: str):
 
             mermaid_text = _flow_to_mermaid(flow, highlight_table=full_table_name)
             if mermaid_text:
-                ui.mermaid(mermaid_text)
+                _render_mermaid_scrollable(mermaid_text)
             else:
                 ui.label('No materialized view flow found.').classes('text-grey-7')
 
@@ -775,7 +781,7 @@ def _render_flow_tab(service, full_table_name: str):
 
             mermaid_text = _flow_to_mermaid(flow, highlight_table=full_table_name)
             if mermaid_text:
-                ui.mermaid(mermaid_text)
+                _render_mermaid_scrollable(mermaid_text)
             else:
                 ui.label('No query-based data flow found.').classes('text-grey-7')
 
@@ -805,7 +811,7 @@ def _render_flow_tab(service, full_table_name: str):
             merged = {'nodes': list(all_nodes.values()), 'edges': all_edges}
             mermaid_text = _flow_to_mermaid(merged, highlight_table=full_table_name)
             if mermaid_text:
-                ui.mermaid(mermaid_text)
+                _render_mermaid_scrollable(mermaid_text)
             else:
                 ui.label('No data flow found.').classes('text-grey-7')
 
@@ -924,6 +930,10 @@ def main_page():
         }
         .right-drawer-toggle-btn.drawer-closed .q-icon {
             transform: rotate(180deg);
+        }
+        .mermaid-flow svg {
+            max-width: none !important;
+            height: auto !important;
         }
         .drawer-resize-handle {
             position: absolute;
