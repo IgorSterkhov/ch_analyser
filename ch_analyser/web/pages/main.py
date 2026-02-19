@@ -302,7 +302,6 @@ def _load_tables(tables_panel, columns_panel, right_drawer):
             r'''
             <q-tr :props="props" class="cursor-pointer"
                    @click="
-                     window.selectedTableName = props.row.name;
                      $event.currentTarget.closest('tbody').querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
                      $event.currentTarget.classList.add('table-row-active');
                      $parent.$emit('row-click', props.row)
@@ -408,15 +407,16 @@ def _load_columns(columns_panel, full_table_name: str, right_drawer):
     if not service:
         return
 
-    # Open the right drawer
+    # Open the right drawer and re-apply row highlight after Vue re-render
+    safe_name = json.dumps(full_table_name)
+    ui.run_javascript(f'window.selectedTableName = {safe_name}')
     right_drawer.set_value(True)
 
-    # Re-apply table row highlight after Vue re-render triggered by drawer opening
     ui.run_javascript('''
         setTimeout(function() {
             var name = window.selectedTableName;
             if (!name) return;
-            document.querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
+            document.querySelectorAll('.table-row-active').forEach(function(r) { r.classList.remove('table-row-active'); });
             document.querySelectorAll('tbody tr td:first-child').forEach(function(td) {
                 if (td.textContent.trim() === name) td.closest('tr').classList.add('table-row-active');
             });
