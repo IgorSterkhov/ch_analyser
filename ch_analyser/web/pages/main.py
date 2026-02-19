@@ -424,22 +424,24 @@ def _load_columns(columns_panel, full_table_name: str, right_drawer):
     ''')
 
     with columns_panel:
-        ui.label(full_table_name).classes('text-subtitle1 text-weight-bold q-mb-sm')
+        ui.label(full_table_name).classes(
+            'text-subtitle1 text-weight-bold text-center w-full q-pa-xs'
+        ).style('border: 1px solid #e0e0e0; border-radius: 4px')
 
-        with ui.tabs().classes('w-full') as tabs:
+        with ui.tabs().classes('w-full').props('dense') as tabs:
             columns_tab = ui.tab('Columns')
             history_tab = ui.tab('Query History')
             flow_tab = ui.tab('Flow')
 
         loaded_tabs = set()
 
-        with ui.tab_panels(tabs, value=columns_tab).classes('w-full') as tab_panels:
-            with ui.tab_panel(columns_tab):
+        with ui.tab_panels(tabs, value=columns_tab).classes('w-full q-pt-none') as tab_panels:
+            with ui.tab_panel(columns_tab).classes('q-pa-xs'):
                 _render_columns_tab(service, full_table_name)
                 loaded_tabs.add('Columns')
-            with ui.tab_panel(history_tab) as history_panel:
+            with ui.tab_panel(history_tab).classes('q-pa-xs') as history_panel:
                 pass
-            with ui.tab_panel(flow_tab) as flow_panel:
+            with ui.tab_panel(flow_tab).classes('q-pa-xs') as flow_panel:
                 pass
 
         def _on_tab_change(e):
@@ -758,33 +760,78 @@ def _render_query_history_tab(service, full_table_name: str):
                 ui.button('Close', on_click=dlg.close).props('flat')
         dlg.open()
 
+    def _reload_filters_and_refresh():
+        """Reload filter options (respecting Direct toggle) and refresh data."""
+        nonlocal unique_users, unique_kinds, counts
+        try:
+            new_filters = service.get_query_history_filters(full_table_name, direct_only=direct_only[0])
+        except Exception:
+            new_filters = {"users": [], "kinds": [], "counts": []}
+        unique_users = new_filters['users']
+        unique_kinds = new_filters['kinds']
+        counts = new_filters['counts']
+        # Rebuild cross-filtering matrix
+        user_kind_matrix.clear()
+        kind_user_matrix.clear()
+        for c in counts:
+            user_kind_matrix.setdefault(c['user'], set()).add(c['query_kind'])
+            kind_user_matrix.setdefault(c['query_kind'], set()).add(c['user'])
+        # Keep only still-valid selections
+        active_users.intersection_update(unique_users)
+        if not active_users:
+            active_users.update(unique_users)
+        active_kinds.intersection_update(unique_kinds)
+        if not active_kinds:
+            active_kinds.update(unique_kinds)
+        # Rebuild filter buttons
+        _rebuild_filter_buttons()
+        _refresh()
+
+    def _rebuild_filter_buttons():
+        """Rebuild User and Kind button rows."""
+        user_buttons.clear()
+        kind_buttons.clear()
+        user_btn_container.clear()
+        kind_btn_container.clear()
+        with user_btn_container:
+            for u in unique_users:
+                btn = ui.button(u, on_click=lambda u=u: toggle_user(u))
+                btn.props('push color=primary text-color=white no-caps size=sm')
+                user_buttons[u] = btn
+        with kind_btn_container:
+            for k in unique_kinds:
+                btn = ui.button(k, on_click=lambda k=k: toggle_kind(k))
+                btn.props('push color=primary text-color=white no-caps size=sm')
+                kind_buttons[k] = btn
+        _update_button_states()
+
     # --- Filter controls ---
     # Row 1: User filter
-    with ui.row().classes('w-full items-center gap-2 q-mb-xs'):
-        ui.label('User:').classes('text-caption text-grey-7')
+    with ui.row().classes('w-full items-start gap-1 no-wrap').style('margin-bottom: 2px'):
+        ui.label('User:').classes('text-caption text-grey-7').style('line-height: 28px; white-space: nowrap')
         ui.button(icon='delete_sweep', on_click=reset_users).props(
             'flat dense size=sm color=grey-7'
         ).tooltip('Clear all')
-        with ui.element('div').classes('flex flex-wrap gap-1'):
+        with ui.element('div').classes('flex flex-wrap gap-0') as user_btn_container:
             for u in unique_users:
                 btn = ui.button(u, on_click=lambda u=u: toggle_user(u))
                 btn.props('push color=primary text-color=white no-caps size=sm')
                 user_buttons[u] = btn
 
     # Row 2: Kind filter
-    with ui.row().classes('w-full items-center gap-2 q-mb-xs'):
-        ui.label('Kind:').classes('text-caption text-grey-7')
+    with ui.row().classes('w-full items-center gap-1 no-wrap').style('margin-bottom: 2px'):
+        ui.label('Kind:').classes('text-caption text-grey-7').style('white-space: nowrap')
         ui.button(icon='delete_sweep', on_click=reset_kinds).props(
             'flat dense size=sm color=grey-7'
         ).tooltip('Clear all')
-        with ui.element('q-btn-group').props('push'):
+        with ui.element('div').classes('flex flex-wrap gap-0') as kind_btn_container:
             for k in unique_kinds:
                 btn = ui.button(k, on_click=lambda k=k: toggle_kind(k))
                 btn.props('push color=primary text-color=white no-caps size=sm')
                 kind_buttons[k] = btn
 
     # Row 3: Limit, Direct toggle, Code button, Refresh
-    with ui.row().classes('w-full items-center gap-4 q-mb-sm'):
+    with ui.row().classes('w-full items-center gap-4').style('margin-bottom: 2px'):
         ui.label('Limit:').classes('text-caption text-grey-7')
         ui.select(
             [50, 100, 200, 500, 1000], value=200,
@@ -792,7 +839,7 @@ def _render_query_history_tab(service, full_table_name: str):
         ).props('dense borderless').style('min-width: 80px')
 
         ui.switch('Direct', value=True,
-                  on_change=lambda e: (direct_only.__setitem__(0, e.value), _refresh()),
+                  on_change=lambda e: (direct_only.__setitem__(0, e.value), _reload_filters_and_refresh()),
                   ).tooltip('Show only queries that directly mention the table name')
 
         ui.button(icon='code', on_click=_show_generated_query).props(

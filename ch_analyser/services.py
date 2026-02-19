@@ -205,18 +205,21 @@ class AnalysisService:
         )
         return rows
 
-    def get_query_history_filters(self, full_table_name: str) -> dict:
+    def get_query_history_filters(self, full_table_name: str,
+                                   direct_only: bool = True) -> dict:
         """Get unique user/kind pairs from the full query history for a table."""
+        short_name = full_table_name.split('.', 1)[1] if '.' in full_table_name else full_table_name
         try:
-            rows = self._client.execute(
+            sql = (
                 "SELECT user, query_kind, count() AS cnt "
                 "FROM system.query_log "
                 "WHERE type = 'QueryFinish' "
                 "AND has(tables, %(table)s) "
-                "GROUP BY user, query_kind "
-                "ORDER BY user, query_kind",
-                {"table": full_table_name},
             )
+            if direct_only:
+                sql += f"AND positionCaseInsensitive(query, '{short_name}') > 0 "
+            sql += "GROUP BY user, query_kind ORDER BY user, query_kind"
+            rows = self._client.execute(sql, {"table": full_table_name})
             users = sorted(set(r['user'] for r in rows))
             kinds = sorted(set(r['query_kind'] for r in rows))
             return {"users": users, "kinds": kinds, "counts": rows}
