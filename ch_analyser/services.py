@@ -205,17 +205,48 @@ class AnalysisService:
         )
         return rows
 
-    def get_query_history(self, full_table_name: str, limit: int = 200) -> list[dict]:
+    def get_query_history_filters(self, full_table_name: str) -> dict:
+        """Get unique user/kind pairs from the full query history for a table."""
         try:
             rows = self._client.execute(
-                "SELECT event_time, user, query_kind, query "
+                "SELECT user, query_kind, count() AS cnt "
                 "FROM system.query_log "
                 "WHERE type = 'QueryFinish' "
                 "AND has(tables, %(table)s) "
-                "ORDER BY event_time DESC "
-                "LIMIT %(limit)s",
-                {"table": full_table_name, "limit": limit},
+                "GROUP BY user, query_kind "
+                "ORDER BY user, query_kind",
+                {"table": full_table_name},
             )
+            users = sorted(set(r['user'] for r in rows))
+            kinds = sorted(set(r['query_kind'] for r in rows))
+            return {"users": users, "kinds": kinds, "counts": rows}
+        except Exception as e:
+            logger.error("Failed to get query history filters for %s: %s", full_table_name, e)
+            return {"users": [], "kinds": [], "counts": []}
+
+    def get_query_history(self, full_table_name: str, limit: int = 200,
+                          users: list[str] | None = None,
+                          kinds: list[str] | None = None) -> list[dict]:
+        try:
+            parts = [
+                "SELECT event_time, user, query_kind, query "
+                "FROM system.query_log "
+                "WHERE type = 'QueryFinish' "
+                "AND has(tables, %(table)s)",
+            ]
+            params: dict = {"table": full_table_name, "limit": limit}
+
+            if users:
+                parts.append("AND user IN %(users)s")
+                params["users"] = users
+            if kinds:
+                parts.append("AND query_kind IN %(kinds)s")
+                params["kinds"] = kinds
+
+            parts.append("ORDER BY event_time DESC")
+            parts.append("LIMIT %(limit)s")
+
+            rows = self._client.execute(' '.join(parts), params)
             for r in rows:
                 r["event_time"] = str(r["event_time"])
             return rows
@@ -265,11 +296,18 @@ class AnalysisService:
         references: dict[str, list[str]] = {}
         for target in entities:
             db, short = target.split('.', 1)
+            # Regex with word boundaries to avoid substring false positives
+            full_pattern = re.compile(r'\b' + re.escape(target) + r'\b')
+            short_pattern = re.compile(r'\b' + re.escape(short) + r'\b')
             refs = []
             for entity_name, ddl in entities.items():
                 if entity_name == target:
                     continue
-                if target in ddl or short in ddl:
+                # Full name match (any database)
+                if full_pattern.search(ddl):
+                    refs.append(entity_name)
+                # Short name match only within the same database
+                elif entity_name.startswith(db + '.') and short_pattern.search(ddl):
                     refs.append(entity_name)
             if refs:
                 references[target] = sorted(refs)
@@ -292,12 +330,18 @@ class AnalysisService:
 
         db, short = full_table_name.split('.', 1) if '.' in full_table_name else ('default', full_table_name)
 
-        # Only consider entities that reference our table
+        # Only consider entities that reference our table (word boundary match)
+        full_pattern = re.compile(r'\b' + re.escape(full_table_name) + r'\b')
+        short_pattern = re.compile(r'\b' + re.escape(short) + r'\b')
         referring_entities: dict[str, str] = {}
         for r in rows:
             entity = f"{r['database']}.{r['name']}"
             ddl = r['create_table_query'] or ''
-            if entity != full_table_name and (full_table_name in ddl or short in ddl):
+            if entity == full_table_name:
+                continue
+            if full_pattern.search(ddl):
+                referring_entities[entity] = ddl
+            elif entity.startswith(db + '.') and short_pattern.search(ddl):
                 referring_entities[entity] = ddl
 
         # Get column names of our table
@@ -312,7 +356,8 @@ class AnalysisService:
         result: dict[str, list[str]] = {}
         for col_row in cols:
             col_name = col_row['name']
-            refs = [entity for entity, ddl in referring_entities.items() if col_name in ddl]
+            col_pattern = re.compile(r'\b' + re.escape(col_name) + r'\b')
+            refs = [entity for entity, ddl in referring_entities.items() if col_pattern.search(ddl)]
             if refs:
                 result[col_name] = sorted(refs)
 
@@ -365,3 +410,121 @@ class AnalysisService:
             f"WHERE database NOT IN ({excluded_str})",
         ]
         return ';\n\n'.join(queries)
+
+    # --- Flow methods ---
+
+    def get_mv_flow(self, full_table_name: str) -> dict:
+        """Get materialized view flow chains involving the given table.
+
+        Returns dict with 'nodes' and 'edges' for graph rendering.
+        """
+        excluded = list(EXCLUDED_DATABASES)
+        try:
+            rows = self._client.execute(
+                "SELECT database, name, engine, create_table_query "
+                "FROM system.tables "
+                "WHERE database NOT IN %(excluded)s",
+                {"excluded": excluded},
+            )
+        except Exception as e:
+            logger.error("Failed to get tables for MV flow: %s", e)
+            return {'nodes': [], 'edges': []}
+
+        edges = []
+        node_types = {}
+
+        for r in rows:
+            full_name = f"{r['database']}.{r['name']}"
+            ddl = r['create_table_query'] or ''
+
+            if r['engine'] == 'MaterializedView':
+                node_types[full_name] = 'mv'
+
+                # Parse source: AS SELECT ... FROM <table>
+                as_match = re.search(r'\bAS\s+SELECT\b', ddl, re.IGNORECASE)
+                if as_match:
+                    select_part = ddl[as_match.start():]
+                    from_match = re.search(
+                        r'\bFROM\s+(\w+(?:\.\w+)?)', select_part, re.IGNORECASE,
+                    )
+                    if from_match:
+                        source = from_match.group(1)
+                        if '.' not in source:
+                            source = f"{r['database']}.{source}"
+                        edges.append((source, full_name))
+
+                # Parse target: TO <table>
+                to_match = re.search(r'\bTO\s+(\w+(?:\.\w+)?)', ddl, re.IGNORECASE)
+                if to_match:
+                    target = to_match.group(1)
+                    if '.' not in target:
+                        target = f"{r['database']}.{target}"
+                    edges.append((full_name, target))
+            else:
+                if full_name not in node_types:
+                    node_types[full_name] = 'table'
+
+        # Build undirected adjacency for BFS
+        graph: dict[str, set[str]] = {}
+        for src, dst in edges:
+            graph.setdefault(src, set()).add(dst)
+            graph.setdefault(dst, set()).add(src)
+
+        if full_table_name not in graph:
+            return {'nodes': [], 'edges': []}
+
+        # BFS to find connected component
+        visited: set[str] = set()
+        queue = [full_table_name]
+        while queue:
+            node = queue.pop(0)
+            if node in visited:
+                continue
+            visited.add(node)
+            for neighbor in graph.get(node, []):
+                if neighbor not in visited:
+                    queue.append(neighbor)
+
+        relevant_edges = [{'from': s, 'to': d} for s, d in edges if s in visited and d in visited]
+        relevant_nodes = [
+            {'id': n, 'type': node_types.get(n, 'table')}
+            for n in visited
+        ]
+        return {'nodes': relevant_nodes, 'edges': relevant_edges}
+
+    def get_query_flow(self, full_table_name: str) -> dict:
+        """Get query-based data flow (INSERT...SELECT patterns) involving the given table."""
+        try:
+            rows = self._client.execute(
+                "SELECT DISTINCT query, tables "
+                "FROM system.query_log "
+                "WHERE type = 'QueryFinish' "
+                "AND query_kind = 'Insert' "
+                "AND length(tables) > 1 "
+                "AND has(tables, %(table)s) "
+                "LIMIT 1000",
+                {"table": full_table_name},
+            )
+        except Exception as e:
+            logger.error("Failed to get query flow: %s", e)
+            return {'nodes': [], 'edges': []}
+
+        edges_set: set[tuple[str, str]] = set()
+        all_tables: set[str] = set()
+
+        for r in rows:
+            tables_list = r['tables']
+            query = r['query']
+
+            insert_match = re.search(r'\bINSERT\s+INTO\s+(\S+)', query, re.IGNORECASE)
+            if insert_match:
+                target = insert_match.group(1).strip('`"')
+                for t in tables_list:
+                    if t != target:
+                        edges_set.add((t, target))
+                        all_tables.add(t)
+                        all_tables.add(target)
+
+        nodes = [{'id': t, 'type': 'table'} for t in all_tables]
+        edges = [{'from': s, 'to': d} for s, d in edges_set]
+        return {'nodes': nodes, 'edges': edges}

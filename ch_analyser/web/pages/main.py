@@ -18,8 +18,73 @@ from ch_analyser.web.components.connection_dialog import connection_dialog
 # Name of the connection currently in "connecting" state (for UI feedback)
 _connecting_name: str | None = None
 
+# Flag to suppress right-drawer hide when a table row click bubbles to main_content
+_suppress_right_drawer_hide: bool = False
 
-def _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer):
+# Clipboard JS fallback for non-HTTPS contexts (remote servers)
+_CLIPBOARD_JS = '''
+<script>
+window.copyToClipboard = function(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text);
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try { document.execCommand('copy'); } catch(e) {}
+        document.body.removeChild(ta);
+    }
+}
+</script>
+'''
+
+# Right drawer resize JS — dynamic width + drag handle + sessionStorage
+_DRAWER_JS = '''
+<script>
+window.rightDrawerWidth = parseInt(sessionStorage.getItem('rightDrawerWidth')) || Math.round(window.innerWidth * 0.5);
+
+window.initDrawerResize = function(handleEl) {
+    var startX, startWidth;
+    handleEl.addEventListener('mousedown', function(e) {
+        startX = e.clientX;
+        startWidth = window.rightDrawerWidth;
+        e.preventDefault();
+        document.body.style.userSelect = 'none';
+
+        function onMouseMove(e) {
+            var newWidth = startWidth + (startX - e.clientX);
+            newWidth = Math.max(300, Math.min(newWidth, Math.round(window.innerWidth * 0.85)));
+            window.rightDrawerWidth = newWidth;
+            var drawerEl = document.querySelector('.q-drawer--right');
+            if (drawerEl) drawerEl.style.setProperty('width', newWidth + 'px', 'important');
+            var toggleBtn = document.querySelector('.right-drawer-toggle-btn');
+            if (toggleBtn && !toggleBtn.classList.contains('drawer-closed')) {
+                toggleBtn.style.right = newWidth + 'px';
+            }
+        }
+        function onMouseUp() {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+            document.body.style.userSelect = '';
+            sessionStorage.setItem('rightDrawerWidth', window.rightDrawerWidth);
+        }
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+}
+</script>
+'''
+
+
+def _copy_to_clipboard(text: str):
+    """Copy text to clipboard with fallback for non-HTTPS contexts."""
+    ui.run_javascript(f'window.copyToClipboard({json.dumps(text)})')
+
+
+def _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer):
     """Render the list of connections into conn_container."""
     conn_container.clear()
     connections = state.conn_manager.list_connections()
@@ -38,7 +103,7 @@ def _build_connections_panel(conn_container, tables_panel, columns_panel, server
             bg = 'bg-blue-1' if is_active else ''
 
             card = ui.card().classes(f'w-full q-pa-xs q-mb-xs cursor-pointer {bg}').props('flat bordered')
-            card.on('click', lambda c=cfg: _on_connect(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer))
+            card.on('click', lambda c=cfg: _on_connect(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer))
 
             with card:
                 with ui.row().classes('items-center w-full justify-between no-wrap'):
@@ -55,15 +120,15 @@ def _build_connections_panel(conn_container, tables_panel, columns_panel, server
                             with ui.menu():
                                 ui.menu_item(
                                     'Edit',
-                                    on_click=lambda c=cfg: _on_edit(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer),
+                                    on_click=lambda c=cfg: _on_edit(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer),
                                 )
                                 ui.menu_item(
                                     'Delete',
-                                    on_click=lambda c=cfg: _on_delete(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer),
+                                    on_click=lambda c=cfg: _on_delete(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer),
                                 )
 
 
-def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer):
+def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer):
     global _connecting_name
 
     # Don't reconnect if already connected to this one
@@ -74,7 +139,7 @@ def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_ba
         # Show "Connecting..." state
         _connecting_name = cfg.name
         state.active_connection_name = None
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
 
         if state.client and state.client.connected:
             state.client.disconnect()
@@ -89,34 +154,34 @@ def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_ba
         state.active_connection_name = cfg.name
         _connecting_name = None
 
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
         _build_server_info_bar(server_info_bar)
-        _load_tables(tables_panel, columns_panel)
-        _clear_columns(columns_panel)
+        _load_tables(tables_panel, columns_panel, right_drawer)
+        _clear_columns(columns_panel, right_drawer)
 
         # Auto-hide connections drawer after successful connect
         drawer.hide()
     except Exception as ex:
         _connecting_name = None
         state.active_connection_name = None
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
         _build_server_info_bar(server_info_bar)
         ui.notify(f'Connection failed: {ex}', type='negative')
 
 
-def _on_edit(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer):
+def _on_edit(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer):
     def save(new_cfg, old_name=cfg.name):
         try:
             state.conn_manager.update_connection(old_name, new_cfg)
             ui.notify(f'Updated "{new_cfg.name}"', type='positive')
-            _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer)
+            _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
         except Exception as ex:
             ui.notify(str(ex), type='negative')
 
     connection_dialog(on_save=save, existing=cfg)
 
 
-def _on_delete(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer):
+def _on_delete(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer):
     try:
         state.conn_manager.delete_connection(cfg.name)
         if state.active_connection_name == cfg.name:
@@ -126,10 +191,10 @@ def _on_delete(cfg, conn_container, tables_panel, columns_panel, server_info_bar
             state.service = None
             state.active_connection_name = None
             _clear_tables(tables_panel)
-            _clear_columns(columns_panel)
+            _clear_columns(columns_panel, right_drawer)
             _build_server_info_bar(server_info_bar)
         ui.notify(f'Deleted "{cfg.name}"', type='positive')
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
     except Exception as ex:
         ui.notify(str(ex), type='negative')
 
@@ -143,14 +208,12 @@ def _show_refs_dialog(title: str, refs_list: list[str]):
             ui.label(ref).classes('text-body2')
         with ui.row().classes('w-full justify-end q-mt-md gap-2'):
             ui.button('Copy', icon='content_copy',
-                      on_click=lambda: ui.run_javascript(
-                          f'navigator.clipboard.writeText({json.dumps(text)})'
-                      )).props('flat')
+                      on_click=lambda: _copy_to_clipboard(text)).props('flat')
             ui.button('Close', on_click=dlg.close).props('flat')
     dlg.open()
 
 
-def _load_tables(tables_panel, columns_panel):
+def _load_tables(tables_panel, columns_panel, right_drawer):
     """Fetch and render tables into the center panel."""
     tables_panel.clear()
     service = state.service
@@ -265,9 +328,21 @@ def _load_tables(tables_panel, columns_panel):
             ''',
         )
 
+        # Track currently selected table for toggle behavior
+        _current_detail_table = [None]
+
         def on_row_click(e):
+            global _suppress_right_drawer_hide
+            _suppress_right_drawer_hide = True
             row = e.args
-            _load_columns(columns_panel, row['name'])
+            table_name = row['name']
+            if table_name == _current_detail_table[0] and right_drawer.value:
+                # Same table clicked again while drawer open -> collapse
+                right_drawer.hide()
+                _current_detail_table[0] = None
+            else:
+                _current_detail_table[0] = table_name
+                _load_columns(columns_panel, table_name, right_drawer)
 
         tbl.on('row-click', on_row_click)
 
@@ -287,14 +362,12 @@ def _load_tables(tables_panel, columns_panel):
                 ui.html(f'<pre style="white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow:auto">{escaped}</pre>')
                 with ui.row().classes('w-full justify-end q-mt-md gap-2'):
                     ui.button('Copy', icon='content_copy',
-                              on_click=lambda: ui.run_javascript(
-                                  f'navigator.clipboard.writeText({json.dumps(formatted)})'
-                              )).props('flat')
+                              on_click=lambda: _copy_to_clipboard(formatted)).props('flat')
                     ui.button('Close', on_click=dlg.close).props('flat')
             dlg.open()
 
         with ui.row().classes('q-mt-sm gap-2'):
-            ui.button('Refresh', icon='refresh', on_click=lambda: _load_tables(tables_panel, columns_panel)).props(
+            ui.button('Refresh', icon='refresh', on_click=lambda: _load_tables(tables_panel, columns_panel, right_drawer)).props(
                 'flat dense color=primary'
             )
             ui.button(icon='code', on_click=_show_tables_sql).props(
@@ -302,12 +375,15 @@ def _load_tables(tables_panel, columns_panel):
             ).tooltip('Show generated SQL')
 
 
-def _load_columns(columns_panel, full_table_name: str):
-    """Fetch and render columns + query history tabs into the right panel."""
+def _load_columns(columns_panel, full_table_name: str, right_drawer):
+    """Fetch and render columns + query history + flow tabs into the right drawer."""
     columns_panel.clear()
     service = state.service
     if not service:
         return
+
+    # Open the right drawer
+    right_drawer.set_value(True)
 
     with columns_panel:
         ui.label(full_table_name).classes('text-subtitle1 text-weight-bold q-mb-sm')
@@ -315,12 +391,15 @@ def _load_columns(columns_panel, full_table_name: str):
         with ui.tabs().classes('w-full') as tabs:
             columns_tab = ui.tab('Columns')
             history_tab = ui.tab('Query History')
+            flow_tab = ui.tab('Flow')
 
         with ui.tab_panels(tabs, value=columns_tab).classes('w-full'):
             with ui.tab_panel(columns_tab):
                 _render_columns_tab(service, full_table_name)
             with ui.tab_panel(history_tab):
                 _render_query_history_tab(service, full_table_name)
+            with ui.tab_panel(flow_tab):
+                _render_flow_tab(service, full_table_name)
 
 
 def _render_columns_tab(service, full_table_name: str):
@@ -395,48 +474,46 @@ def _render_columns_tab(service, full_table_name: str):
 
 
 def _render_query_history_tab(service, full_table_name: str):
-    """Render query history table inside a tab panel."""
+    """Render query history table with server-side filtering."""
+    # Get filter options from server (GROUP BY query)
     try:
-        data = service.get_query_history(full_table_name)
+        filters = service.get_query_history_filters(full_table_name)
     except Exception as ex:
-        ui.notify(f'Failed to load query history: {ex}', type='negative')
+        ui.notify(f'Failed to load query history filters: {ex}', type='negative')
         return
 
-    if not data:
+    unique_users = filters['users']
+    unique_kinds = filters['kinds']
+    counts = filters['counts']
+
+    if not unique_users and not unique_kinds:
         ui.label('No query history found.').classes('text-grey-7')
         return
 
-    # Search/filter input
-    filter_input = ui.input(placeholder='Filter...').props('dense clearable').classes('q-mb-sm w-full')
-
-    # --- Toggle filters ---
-    unique_users = sorted(set(r['user'] for r in data))
-    unique_kinds = sorted(set(r['query_kind'] for r in data))
-
+    # State
     active_users = set(unique_users)
     active_kinds = set(unique_kinds)
+    current_limit = [200]
 
-    all_rows = [
-        {
-            'event_time': r['event_time'],
-            'user': r['user'],
-            'query_kind': r['query_kind'],
-            'query_short': r['query'][:50] + ('...' if len(r['query']) > 50 else ''),
-            'query_full': r['query'],
-        }
-        for r in data
-    ]
+    # Cross-filtering matrix from counts
+    user_kind_matrix: dict[str, set[str]] = {}
+    kind_user_matrix: dict[str, set[str]] = {}
+    for c in counts:
+        user_kind_matrix.setdefault(c['user'], set()).add(c['query_kind'])
+        kind_user_matrix.setdefault(c['query_kind'], set()).add(c['user'])
 
     user_buttons: dict[str, ui.button] = {}
     kind_buttons: dict[str, ui.button] = {}
 
-    # Will be set after table creation
-    tbl_ref: list[ui.table] = []
+    def _update_button_states():
+        """Update button visuals based on cross-filtering matrix."""
+        available_kinds = set()
+        for u in active_users:
+            available_kinds |= user_kind_matrix.get(u, set())
 
-    def _update_buttons_and_table():
-        """Recalculate dependent filters and update table from cached data."""
-        available_kinds = set(r['query_kind'] for r in all_rows if r['user'] in active_users)
-        available_users = set(r['user'] for r in all_rows if r['query_kind'] in active_kinds)
+        available_users = set()
+        for k in active_kinds:
+            available_users |= kind_user_matrix.get(k, set())
 
         for u, btn in user_buttons.items():
             if u not in available_users:
@@ -460,29 +537,136 @@ def _render_query_history_tab(service, full_table_name: str):
                 btn.props(remove='disable')
             btn.update()
 
-        effective_users = active_users & available_users
-        effective_kinds = active_kinds & available_kinds
-        tbl_ref[0].rows = [
-            r for r in all_rows
-            if r['user'] in effective_users and r['query_kind'] in effective_kinds
+    def _refresh():
+        """Re-query the server with current filters and rebuild table."""
+        users_param = sorted(active_users) if len(active_users) < len(unique_users) else None
+        kinds_param = sorted(active_kinds) if len(active_kinds) < len(unique_kinds) else None
+        try:
+            data = service.get_query_history(
+                full_table_name,
+                limit=current_limit[0],
+                users=users_param,
+                kinds=kinds_param,
+            )
+        except Exception as ex:
+            ui.notify(f'Failed to load query history: {ex}', type='negative')
+            return
+
+        rows = [
+            {
+                'event_time': r['event_time'],
+                'user': r['user'],
+                'query_kind': r['query_kind'],
+                'query_short': r['query'][:50] + ('...' if len(r['query']) > 50 else ''),
+                'query_full': r['query'],
+            }
+            for r in data
         ]
-        tbl_ref[0].update()
+        _rebuild_table(rows)
+
+    def _rebuild_table(rows):
+        """Rebuild the query history table with new data."""
+        table_container.clear()
+        with table_container:
+            if not rows:
+                ui.label('No query history found.').classes('text-grey-7')
+                return
+
+            filter_input = ui.input(placeholder='Filter...').props('dense clearable').classes('q-mb-sm w-full')
+
+            columns = [
+                {'name': 'event_time', 'label': 'Time', 'field': 'event_time', 'align': 'left', 'sortable': True},
+                {'name': 'user', 'label': 'User', 'field': 'user', 'align': 'left', 'sortable': True},
+                {'name': 'query_kind', 'label': 'Kind', 'field': 'query_kind', 'align': 'center', 'sortable': True},
+                {'name': 'query', 'label': 'Query', 'field': 'query_short', 'align': 'left'},
+            ]
+
+            tbl = ui.table(
+                columns=columns,
+                rows=rows,
+                row_key='event_time',
+                pagination={'rowsPerPage': 20, 'sortBy': 'event_time', 'descending': True},
+            ).classes('w-full')
+
+            tbl.bind_filter_from(filter_input, 'value')
+
+            tbl.add_slot(
+                'body',
+                r'''
+                <q-tr :props="props">
+                    <q-td key="event_time" :props="props">{{ props.row.event_time }}</q-td>
+                    <q-td key="user" :props="props">{{ props.row.user }}</q-td>
+                    <q-td key="query_kind" :props="props">{{ props.row.query_kind }}</q-td>
+                    <q-td key="query" :props="props">
+                        <q-btn flat dense size="sm" icon="visibility" color="primary"
+                               @click.stop="$parent.$emit('show-query', props.row)"
+                               class="q-mr-xs" />
+                        {{ props.row.query_short }}
+                    </q-td>
+                </q-tr>
+                ''',
+            )
+
+            def _highlight_table(sql_text, table_name):
+                """Highlight table name occurrences in already-escaped HTML."""
+                parts = [re.escape(table_name)]
+                if '.' in table_name:
+                    parts.append(re.escape(table_name.split('.', 1)[1]))
+                pattern = '|'.join(parts)
+                return re.sub(
+                    f'({pattern})',
+                    r'<mark style="background:#fff176;padding:1px 3px;border-radius:2px">\1</mark>',
+                    sql_text,
+                )
+
+            def on_show_query(e):
+                row = e.args
+                formatted = format_clickhouse_sql(row['query_full'])
+                escaped = html.escape(formatted)
+                highlighted = _highlight_table(escaped, full_table_name)
+
+                with ui.dialog() as dlg, ui.card().classes('w-full max-w-3xl q-pa-md'):
+                    ui.label('Query').classes('text-h6 q-mb-sm')
+
+                    sql_container = ui.html(
+                        f'<pre style="white-space: pre-wrap; word-break: break-all; max-height: 60vh; overflow: auto;">{highlighted}</pre>'
+                    )
+
+                    def on_highlight_toggle(e_val):
+                        content = highlighted if e_val.value else escaped
+                        sql_container.content = (
+                            f'<pre style="white-space: pre-wrap; word-break: break-all; max-height: 60vh; overflow: auto;">{content}</pre>'
+                        )
+                        sql_container.update()
+
+                    with ui.row().classes('w-full items-center justify-between q-mt-md'):
+                        ui.switch('Highlight table', value=True, on_change=on_highlight_toggle)
+                        with ui.row().classes('gap-2'):
+                            ui.button('Copy', icon='content_copy',
+                                      on_click=lambda: _copy_to_clipboard(formatted)).props('flat')
+                            ui.button('Close', on_click=dlg.close).props('flat')
+                dlg.open()
+
+            tbl.on('show-query', on_show_query)
 
     def toggle_user(user):
         if user in active_users:
             active_users.discard(user)
         else:
             active_users.add(user)
-        _update_buttons_and_table()
+        _update_button_states()
+        _refresh()
 
     def toggle_kind(kind):
         if kind in active_kinds:
             active_kinds.discard(kind)
         else:
             active_kinds.add(kind)
-        _update_buttons_and_table()
+        _update_button_states()
+        _refresh()
 
-    with ui.row().classes('w-full items-center gap-4 q-mb-sm'):
+    # --- Filter controls ---
+    with ui.row().classes('w-full items-center gap-4 q-mb-sm flex-wrap'):
         ui.label('User:').classes('text-caption text-grey-7')
         with ui.element('q-btn-group').props('push'):
             for u in unique_users:
@@ -497,10 +681,22 @@ def _render_query_history_tab(service, full_table_name: str):
                 btn.props('push color=primary text-color=white no-caps')
                 kind_buttons[k] = btn
 
+        ui.label('Limit:').classes('text-caption text-grey-7')
+        ui.select(
+            [50, 100, 200, 500, 1000], value=200,
+            on_change=lambda e: (current_limit.__setitem__(0, e.value), _refresh()),
+        ).props('dense borderless').style('min-width: 80px')
+
+        ui.button('Refresh', icon='refresh', on_click=_refresh).props('flat dense color=primary')
+
+    # Table container for rebuilding (after filters so it renders below them)
+    table_container = ui.column().classes('w-full')
+
     # --- Show generated query button ---
     def _show_generated_query():
         raw_sql = service.get_query_history_sql(
             full_table_name,
+            limit=current_limit[0],
             users=sorted(active_users) if len(active_users) < len(unique_users) else None,
             kinds=sorted(active_kinds) if len(active_kinds) < len(unique_kinds) else None,
         )
@@ -511,9 +707,7 @@ def _render_query_history_tab(service, full_table_name: str):
             ui.html(f'<pre style="white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow:auto">{escaped}</pre>')
             with ui.row().classes('w-full justify-end q-mt-md gap-2'):
                 ui.button('Copy', icon='content_copy',
-                          on_click=lambda: ui.run_javascript(
-                              f'navigator.clipboard.writeText({json.dumps(formatted)})'
-                          )).props('flat')
+                          on_click=lambda: _copy_to_clipboard(formatted)).props('flat')
                 ui.button('Close', on_click=dlg.close).props('flat')
         dlg.open()
 
@@ -521,80 +715,99 @@ def _render_query_history_tab(service, full_table_name: str):
         'flat dense color=primary'
     ).tooltip('Show generated SQL')
 
-    # --- Table ---
-    columns = [
-        {'name': 'event_time', 'label': 'Time', 'field': 'event_time', 'align': 'left', 'sortable': True},
-        {'name': 'user', 'label': 'User', 'field': 'user', 'align': 'left', 'sortable': True},
-        {'name': 'query_kind', 'label': 'Kind', 'field': 'query_kind', 'align': 'center', 'sortable': True},
-        {'name': 'query', 'label': 'Query', 'field': 'query_short', 'align': 'left'},
-    ]
+    # Initial load
+    _refresh()
 
-    tbl = ui.table(
-        columns=columns,
-        rows=list(all_rows),
-        row_key='event_time',
-        pagination={'rowsPerPage': 20, 'sortBy': 'event_time', 'descending': True},
-    ).classes('w-full')
-    tbl_ref.append(tbl)
 
-    # Bind filter input to table's built-in filter
-    tbl.bind_filter_from(filter_input, 'value')
+def _flow_to_mermaid(flow: dict, highlight_table: str = '') -> str:
+    """Convert flow dict to Mermaid flowchart syntax."""
+    if not flow['nodes'] and not flow['edges']:
+        return ''
 
-    tbl.add_slot(
-        'body',
-        r'''
-        <q-tr :props="props">
-            <q-td key="event_time" :props="props">{{ props.row.event_time }}</q-td>
-            <q-td key="user" :props="props">{{ props.row.user }}</q-td>
-            <q-td key="query_kind" :props="props">{{ props.row.query_kind }}</q-td>
-            <q-td key="query" :props="props">
-                <q-btn flat dense size="sm" icon="visibility" color="primary"
-                       @click.stop="$parent.$emit('show-query', props.row)"
-                       class="q-mr-xs" />
-                {{ props.row.query_short }}
-            </q-td>
-        </q-tr>
-        ''',
-    )
+    lines = ['graph LR']
+    for node in flow['nodes']:
+        node_id = re.sub(r'[^a-zA-Z0-9_]', '_', node['id'])
+        label = node['id']
+        if node['type'] == 'mv':
+            lines.append(f'    {node_id}[/"{label}"/]')
+        else:
+            lines.append(f'    {node_id}["{label}"]')
 
-    def _highlight_table(sql_text, table_name):
-        """Highlight table name occurrences in already-escaped HTML."""
-        parts = [re.escape(table_name)]
-        if '.' in table_name:
-            parts.append(re.escape(table_name.split('.', 1)[1]))
-        pattern = '|'.join(parts)
-        return re.sub(
-            f'({pattern})',
-            r'<mark style="background:#fff176;padding:1px 3px;border-radius:2px">\1</mark>',
-            sql_text,
-        )
+    for edge in flow['edges']:
+        src_id = re.sub(r'[^a-zA-Z0-9_]', '_', edge['from'])
+        dst_id = re.sub(r'[^a-zA-Z0-9_]', '_', edge['to'])
+        lines.append(f'    {src_id} --> {dst_id}')
 
-    def on_show_query(e):
-        row = e.args
-        formatted = format_clickhouse_sql(row['query_full'])
-        escaped = html.escape(formatted)
-        highlighted = _highlight_table(escaped, full_table_name)
+    if highlight_table:
+        ht_id = re.sub(r'[^a-zA-Z0-9_]', '_', highlight_table)
+        lines.append(f'    style {ht_id} fill:#1976d2,color:#fff')
 
-        with ui.dialog() as dlg, ui.card().classes('w-full max-w-3xl q-pa-md'):
-            ui.label('Query').classes('text-h6 q-mb-sm')
+    return '\n'.join(lines)
 
-            sql_container = ui.html(
-                f'<pre style="white-space: pre-wrap; word-break: break-all; max-height: 60vh; overflow: auto;">{highlighted}</pre>'
-            )
 
-            def on_highlight_toggle(e_val):
-                content = highlighted if e_val.value else escaped
-                sql_container.content = (
-                    f'<pre style="white-space: pre-wrap; word-break: break-all; max-height: 60vh; overflow: auto;">{content}</pre>'
-                )
-                sql_container.update()
+def _render_flow_tab(service, full_table_name: str):
+    """Render flow diagrams using Mermaid."""
+    with ui.tabs().classes('w-full').props('dense') as sub_tabs:
+        mv_tab = ui.tab('MV Flow')
+        query_tab = ui.tab('Query Flow')
+        full_tab = ui.tab('Full Flow')
 
-            with ui.row().classes('w-full items-center justify-between q-mt-md'):
-                ui.switch('Highlight table', value=True, on_change=on_highlight_toggle)
-                ui.button('Close', on_click=dlg.close).props('flat')
-        dlg.open()
+    with ui.tab_panels(sub_tabs, value=mv_tab).classes('w-full'):
+        with ui.tab_panel(mv_tab):
+            try:
+                flow = service.get_mv_flow(full_table_name)
+            except Exception as ex:
+                ui.notify(f'Failed to load MV flow: {ex}', type='negative')
+                flow = {'nodes': [], 'edges': []}
 
-    tbl.on('show-query', on_show_query)
+            mermaid_text = _flow_to_mermaid(flow, highlight_table=full_table_name)
+            if mermaid_text:
+                ui.mermaid(mermaid_text)
+            else:
+                ui.label('No materialized view flow found.').classes('text-grey-7')
+
+        with ui.tab_panel(query_tab):
+            try:
+                flow = service.get_query_flow(full_table_name)
+            except Exception as ex:
+                ui.notify(f'Failed to load query flow: {ex}', type='negative')
+                flow = {'nodes': [], 'edges': []}
+
+            mermaid_text = _flow_to_mermaid(flow, highlight_table=full_table_name)
+            if mermaid_text:
+                ui.mermaid(mermaid_text)
+            else:
+                ui.label('No query-based data flow found.').classes('text-grey-7')
+
+        with ui.tab_panel(full_tab):
+            try:
+                mv_flow = service.get_mv_flow(full_table_name)
+                query_flow = service.get_query_flow(full_table_name)
+            except Exception as ex:
+                ui.notify(f'Failed to load flow: {ex}', type='negative')
+                mv_flow = {'nodes': [], 'edges': []}
+                query_flow = {'nodes': [], 'edges': []}
+
+            # Merge flows
+            all_nodes = {n['id']: n for n in mv_flow['nodes']}
+            for n in query_flow['nodes']:
+                if n['id'] not in all_nodes:
+                    all_nodes[n['id']] = n
+
+            all_edges_set = set()
+            all_edges = []
+            for e in mv_flow['edges'] + query_flow['edges']:
+                key = (e['from'], e['to'])
+                if key not in all_edges_set:
+                    all_edges_set.add(key)
+                    all_edges.append(e)
+
+            merged = {'nodes': list(all_nodes.values()), 'edges': all_edges}
+            mermaid_text = _flow_to_mermaid(merged, highlight_table=full_table_name)
+            if mermaid_text:
+                ui.mermaid(mermaid_text)
+            else:
+                ui.label('No data flow found.').classes('text-grey-7')
 
 
 def _clear_tables(tables_panel):
@@ -603,8 +816,10 @@ def _clear_tables(tables_panel):
         ui.label('Select a connection.').classes('text-grey-7')
 
 
-def _clear_columns(columns_panel):
+def _clear_columns(columns_panel, right_drawer=None):
     columns_panel.clear()
+    if right_drawer:
+        right_drawer.hide()
     with columns_panel:
         ui.label('Select a table.').classes('text-grey-7')
 
@@ -644,13 +859,19 @@ def _build_server_info_bar(bar_container):
                     value=pct / 100.0,
                     color=color,
                 ).props('rounded track-color=grey-3').style('max-width: 200px; height: 8px')
-                ui.label(f'{pct}%').classes(f'text-weight-bold text-{color}')
+                ui.label(f'{pct:.1f}%').classes(f'text-weight-bold text-{color}')
 
 
 @ui.page('/')
 def main_page():
     if not require_auth():
         return
+
+    # Clipboard fallback for non-HTTPS (remote servers)
+    ui.add_head_html(_CLIPBOARD_JS)
+
+    # Right drawer resize support
+    ui.add_head_html(_DRAWER_JS)
 
     # CSS for selected table row highlight, drawer toggle button, and scroll fix
     ui.add_css('''
@@ -685,9 +906,41 @@ def main_page():
         .drawer-toggle-btn.drawer-closed .q-icon {
             transform: rotate(180deg);
         }
+        .right-drawer-toggle-btn {
+            position: fixed !important;
+            right: 0 !important;
+            top: 50% !important;
+            transform: translateY(-50%) !important;
+            width: 24px !important;
+            min-width: 24px !important;
+            height: 80px !important;
+            padding: 0 !important;
+            border-radius: 8px 0 0 8px !important;
+            z-index: 3001 !important;
+            transition: none !important;
+        }
+        .right-drawer-toggle-btn .q-icon {
+            transition: transform 0.3s ease;
+        }
+        .right-drawer-toggle-btn.drawer-closed .q-icon {
+            transform: rotate(180deg);
+        }
+        .drawer-resize-handle {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 6px;
+            height: 100%;
+            cursor: col-resize;
+            z-index: 1001;
+            background: transparent;
+        }
+        .drawer-resize-handle:hover {
+            background: rgba(25, 118, 210, 0.3);
+        }
     ''')
 
-    # Collapsible connections drawer
+    # Collapsible connections drawer (left)
     with ui.left_drawer(elevated=True, value=True).classes('q-pa-sm') as drawer:
         with ui.row().classes('items-center justify-between w-full q-mb-sm'):
             ui.label('Connections').classes('text-h6')
@@ -702,7 +955,23 @@ def main_page():
         # Add button for admin — placed outside conn_container so it survives rebuilds
         add_btn_container = ui.column().classes('w-full')
 
-    # Sync toggle button state whenever drawer opens/closes
+    # Collapsible Table Details drawer (right, hidden by default, overlay mode)
+    with ui.right_drawer(elevated=True, value=False).classes('q-pa-sm').props('overlay') as right_drawer:
+        # Resize handle on the left edge
+        resize_handle = ui.element('div').classes('drawer-resize-handle')
+        with ui.row().classes('items-center justify-between w-full q-mb-sm'):
+            ui.label('Table Details').classes('text-h6')
+            ui.button(icon='close', on_click=right_drawer.hide).props('flat dense')
+        columns_panel = ui.column().classes('w-full')
+        with columns_panel:
+            ui.label('Select a table.').classes('text-grey-7')
+
+    # Initialize resize handle for right drawer
+    ui.timer(0.5, lambda: ui.run_javascript(
+        'var h = document.querySelector(".drawer-resize-handle"); if (h) window.initDrawerResize(h);'
+    ), once=True)
+
+    # Sync left drawer toggle button state
     def _on_drawer_change(e):
         if e.value:
             ui.run_javascript("document.querySelector('.drawer-toggle-btn')?.classList.remove('drawer-closed')")
@@ -711,12 +980,35 @@ def main_page():
 
     drawer.on_value_change(_on_drawer_change)
 
+    # Sync right drawer toggle button state + dynamic width
+    def _on_right_drawer_change(e):
+        if e.value:
+            ui.run_javascript("""
+                var w = window.rightDrawerWidth || Math.round(window.innerWidth * 0.5);
+                var btn = document.querySelector('.right-drawer-toggle-btn');
+                if (btn) { btn.classList.remove('drawer-closed'); btn.style.right = w + 'px'; }
+                var drawerEl = document.querySelector('.q-drawer--right');
+                if (drawerEl) drawerEl.style.setProperty('width', w + 'px', 'important');
+            """)
+        else:
+            ui.run_javascript("""
+                var btn = document.querySelector('.right-drawer-toggle-btn');
+                if (btn) { btn.classList.add('drawer-closed'); btn.style.right = '0'; }
+            """)
+
+    right_drawer.on_value_change(_on_right_drawer_change)
+
     header(drawer=drawer)
 
-    # Toggle button — OUTSIDE drawer, fixed-position, always visible
+    # Left drawer toggle button — fixed-position, always visible
     ui.button(icon='chevron_left', on_click=lambda: drawer.set_value(not drawer.value)).props(
         'color=primary dense unelevated'
     ).classes('drawer-toggle-btn')
+
+    # Right drawer toggle button — fixed-position, always visible
+    ui.button(icon='chevron_right', on_click=lambda: right_drawer.set_value(not right_drawer.value)).props(
+        'color=primary dense unelevated'
+    ).classes('right-drawer-toggle-btn drawer-closed')
 
     # Main content area
     main_content = ui.column().classes('w-full q-pa-sm gap-2').style('height: calc(100vh - 64px)')
@@ -726,27 +1018,27 @@ def main_page():
         server_info_bar = ui.card().classes('q-pa-sm w-full').props('flat bordered')
         server_info_bar.set_visibility(False)
 
-        # Tables + Table Details row
-        with ui.row().classes('w-full flex-nowrap gap-2 flex-grow overflow-hidden'):
-            # CENTER: Tables
-            with ui.card().classes('q-pa-sm overflow-auto').style('width: 45%; max-height: calc(100vh - 150px)'):
-                ui.label('Tables').classes('text-h6 q-mb-sm')
-                tables_panel = ui.column().classes('w-full')
-                with tables_panel:
-                    ui.label('Select a connection.').classes('text-grey-7')
+        # Tables panel (full width, Table Details is now in right drawer)
+        with ui.card().classes('q-pa-sm overflow-auto w-full flex-grow').style('max-height: calc(100vh - 150px)'):
+            ui.label('Tables').classes('text-h6 q-mb-sm')
+            tables_panel = ui.column().classes('w-full')
+            with tables_panel:
+                ui.label('Select a connection.').classes('text-grey-7')
 
-            # RIGHT: Table Details
-            with ui.card().classes('q-pa-sm overflow-auto flex-grow').style('max-height: calc(100vh - 150px)'):
-                ui.label('Table Details').classes('text-h6 q-mb-sm')
-                columns_panel = ui.column().classes('w-full')
-                with columns_panel:
-                    ui.label('Select a table.').classes('text-grey-7')
+    # Auto-hide drawers when clicking on main content
+    def _on_main_click():
+        global _suppress_right_drawer_hide
+        if drawer.value:
+            drawer.hide()
+        if _suppress_right_drawer_hide:
+            _suppress_right_drawer_hide = False
+        elif right_drawer.value:
+            right_drawer.hide()
 
-    # Auto-hide drawer when clicking on main content
-    main_content.on('click', lambda: drawer.hide() if drawer.value else None)
+    main_content.on('click', _on_main_click)
 
     # Build connections list
-    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer)
+    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
 
     # Add button — outside conn_container, won't be cleared on rebuild
     if is_admin():
@@ -755,7 +1047,7 @@ def main_page():
                 try:
                     state.conn_manager.add_connection(cfg)
                     ui.notify(f'Added "{cfg.name}"', type='positive')
-                    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer)
+                    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
                 except Exception as ex:
                     ui.notify(str(ex), type='negative')
             connection_dialog(on_save=save)
@@ -768,4 +1060,4 @@ def main_page():
     # If already connected, show tables and server info
     if state.service:
         _build_server_info_bar(server_info_bar)
-        _load_tables(tables_panel, columns_panel)
+        _load_tables(tables_panel, columns_panel, right_drawer)

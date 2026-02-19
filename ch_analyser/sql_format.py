@@ -108,6 +108,18 @@ CLICKHOUSE_FUNCTIONS = [
 
 _FUNC_CASE_MAP = {f.lower(): f for f in CLICKHOUSE_FUNCTIONS}
 
+# ClickHouse system table column names that sqlparse incorrectly treats as SQL keywords
+CLICKHOUSE_COLUMN_KEYWORDS = {
+    "type", "tables", "user", "table", "database", "column", "engine",
+    "partition", "key", "path", "rows", "comment", "status", "name",
+    "query", "active", "format", "index", "merge", "primary", "role",
+    "values", "value", "level", "source", "position", "text", "message",
+    "settings", "action", "event", "metric", "replica", "interface",
+    "exception", "mutation", "disk_name", "view_name", "view_type",
+    "view_target", "query_kind", "event_time", "elapsed", "read_rows",
+    "written_rows", "result_rows",
+}
+
 
 def _restore_function_case(sql: str) -> str:
     """Restore correct casing for ClickHouse functions after keyword uppercasing."""
@@ -121,7 +133,30 @@ def _restore_function_case(sql: str) -> str:
     return re.sub(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', _replace, sql)
 
 
+def _restore_column_case(formatted_sql: str, original_sql: str) -> str:
+    """Restore column names that sqlparse incorrectly uppercased."""
+    # Find words from original SQL that are in the exception list and were lowercase
+    original_lower = set()
+    for match in re.finditer(r'\b([a-z_][a-z0-9_]*)\b', original_sql):
+        word = match.group(1)
+        if word in CLICKHOUSE_COLUMN_KEYWORDS:
+            original_lower.add(word)
+
+    if not original_lower:
+        return formatted_sql
+
+    # Replace uppercased versions back to lowercase
+    pattern = r'\b(' + '|'.join(re.escape(w.upper()) for w in sorted(original_lower)) + r')\b'
+
+    def _replace(match):
+        return match.group(0).lower()
+
+    return re.sub(pattern, _replace, formatted_sql)
+
+
 def format_clickhouse_sql(sql: str) -> str:
-    """Format SQL with sqlparse, then restore ClickHouse function casing."""
+    """Format SQL with sqlparse, then restore ClickHouse function and column casing."""
     result = sqlparse.format(sql, reindent=True, keyword_case='upper')
-    return _restore_function_case(result)
+    result = _restore_function_case(result)
+    result = _restore_column_case(result, sql)
+    return result
