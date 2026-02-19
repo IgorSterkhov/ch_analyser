@@ -426,7 +426,7 @@ def _load_columns(columns_panel, full_table_name: str, right_drawer):
     with columns_panel:
         ui.label(full_table_name).classes(
             'text-subtitle1 text-weight-bold text-center w-full q-pa-xs'
-        ).style('border: 1px solid #e0e0e0; border-radius: 4px')
+        ).style('border: 1px solid #9e9e9e; border-radius: 4px')
 
         with ui.tabs().classes('w-full').props('dense') as tabs:
             columns_tab = ui.tab('Columns')
@@ -564,13 +564,19 @@ def _render_query_history_tab(service, full_table_name: str):
 
     def _update_button_states():
         """Update button visuals based on cross-filtering matrix."""
-        available_kinds = set()
-        for u in active_users:
-            available_kinds |= user_kind_matrix.get(u, set())
+        if active_users:
+            available_kinds = set()
+            for u in active_users:
+                available_kinds |= user_kind_matrix.get(u, set())
+        else:
+            available_kinds = set(unique_kinds)
 
-        available_users = set()
-        for k in active_kinds:
-            available_users |= kind_user_matrix.get(k, set())
+        if active_kinds:
+            available_users = set()
+            for k in active_kinds:
+                available_users |= kind_user_matrix.get(k, set())
+        else:
+            available_users = set(unique_users)
 
         for u, btn in user_buttons.items():
             if u not in available_users:
