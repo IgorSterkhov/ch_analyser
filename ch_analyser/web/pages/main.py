@@ -100,6 +100,52 @@ window.mermaidZoomOut = function() {
     sessionStorage.setItem('mermaidZoom', window.mermaidZoom);
     window.applyMermaidZoom();
 }
+
+// Fullscreen diagram zoom (separate from panel zoom)
+window.mermaidFsZoom = 1.0;
+
+window.applyMermaidFsZoom = function() {
+    document.querySelectorAll('.mermaid-fs-flow').forEach(function(el) {
+        el.style.transform = 'scale(' + window.mermaidFsZoom + ')';
+    });
+    document.querySelectorAll('.mermaid-fs-zoom-label').forEach(function(el) {
+        el.textContent = Math.round(window.mermaidFsZoom * 100) + '%';
+    });
+}
+
+window.mermaidFsZoomIn = function() {
+    window.mermaidFsZoom = Math.min(window.mermaidFsZoom + 0.1, 5.0);
+    window.applyMermaidFsZoom();
+}
+
+window.mermaidFsZoomOut = function() {
+    window.mermaidFsZoom = Math.max(window.mermaidFsZoom - 0.1, 0.2);
+    window.applyMermaidFsZoom();
+}
+
+window.mermaidFsAutoFit = function() {
+    var container = document.querySelector('.mermaid-fs-scroll');
+    var svg = document.querySelector('.mermaid-fs-flow svg');
+    if (!container || !svg) return;
+    // Reset scale to measure natural size
+    var flow = document.querySelector('.mermaid-fs-flow');
+    flow.style.transform = 'scale(1)';
+    var svgW = svg.getBoundingClientRect().width;
+    var svgH = svg.getBoundingClientRect().height;
+    var cW = container.clientWidth - 20;
+    var cH = container.clientHeight - 20;
+    if (svgW <= 0 || svgH <= 0) return;
+    var scale = Math.min(cW / svgW, cH / svgH, 1.5);
+    scale = Math.max(scale, 0.2);
+    window.mermaidFsZoom = Math.round(scale * 10) / 10;
+    window.applyMermaidFsZoom();
+}
+
+window.mermaidFsWheel = function(e) {
+    e.preventDefault();
+    if (e.deltaY < 0) { window.mermaidFsZoomIn(); }
+    else { window.mermaidFsZoomOut(); }
+}
 </script>
 '''
 
@@ -887,6 +933,44 @@ def _flow_to_mermaid(flow: dict, highlight_table: str = '') -> str:
     return '\n'.join(lines)
 
 
+def _show_fullscreen_mermaid(mermaid_text: str):
+    """Open a maximized dialog with the Mermaid diagram, auto-fit, zoom and wheel scroll."""
+    with ui.dialog() as dlg, ui.card().classes('q-pa-none').style(
+        'width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh'
+    ):
+        dlg.props('maximized')
+        # Top bar with zoom controls and close button
+        with ui.row().classes('w-full items-center q-pa-xs').style(
+            'background: rgba(255,255,255,0.95); border-bottom: 1px solid #e0e0e0'
+        ):
+            ui.button(icon='remove', on_click=lambda: ui.run_javascript('window.mermaidFsZoomOut()')).props(
+                'flat dense size=sm'
+            ).classes('mermaid-zoom-btn')
+            ui.label('100%').classes('mermaid-fs-zoom-label text-caption')
+            ui.button(icon='add', on_click=lambda: ui.run_javascript('window.mermaidFsZoomIn()')).props(
+                'flat dense size=sm'
+            ).classes('mermaid-zoom-btn')
+            ui.button('Fit', icon='fit_screen',
+                      on_click=lambda: ui.run_javascript('window.mermaidFsAutoFit()')).props(
+                'flat dense size=sm'
+            ).classes('q-ml-sm')
+            ui.space()
+            ui.button(icon='close', on_click=dlg.close).props('flat dense')
+        # Scrollable diagram area
+        with ui.element('div').classes('mermaid-fs-scroll').style(
+            'overflow: auto; flex: 1; width: 100%; height: calc(100vh - 40px)'
+        ):
+            ui.mermaid(mermaid_text).classes('mermaid-fs-flow')
+    dlg.open()
+    # Auto-fit + wheel zoom after mermaid renders
+    ui.timer(0.5, lambda: ui.run_javascript('''
+        window.mermaidFsZoom = 1.0;
+        window.mermaidFsAutoFit();
+        var sc = document.querySelector('.mermaid-fs-scroll');
+        if (sc) sc.addEventListener('wheel', window.mermaidFsWheel, {passive: false});
+    '''), once=True)
+
+
 def _render_mermaid_scrollable(mermaid_text: str):
     """Render a Mermaid diagram inside a scrollable container with zoom controls."""
     with ui.element('div').classes('w-full').style('position: relative'):
@@ -899,6 +983,10 @@ def _render_mermaid_scrollable(mermaid_text: str):
             ui.button(icon='add', on_click=lambda: ui.run_javascript('window.mermaidZoomIn()')).props(
                 'flat dense size=sm'
             ).classes('mermaid-zoom-btn')
+            ui.button(icon='fullscreen',
+                      on_click=lambda t=mermaid_text: _show_fullscreen_mermaid(t)).props(
+                'flat dense size=sm'
+            ).classes('mermaid-zoom-btn q-ml-xs').tooltip('Fullscreen')
         # Scrollable diagram area
         with ui.element('div').classes('w-full').style('overflow: auto; max-height: 60vh'):
             ui.mermaid(mermaid_text).classes('mermaid-flow')
@@ -1111,6 +1199,15 @@ def main_page():
             min-width: 28px !important;
             width: 28px !important;
             height: 28px !important;
+        }
+        .mermaid-fs-flow {
+            min-width: max-content;
+            transform-origin: top left;
+        }
+        .mermaid-fs-flow svg {
+            max-width: none !important;
+            width: auto !important;
+            height: auto !important;
         }
         .drawer-resize-handle {
             position: absolute;
