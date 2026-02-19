@@ -142,9 +142,37 @@ window.mermaidFsAutoFit = function() {
 }
 
 window.mermaidFsWheel = function(e) {
-    e.preventDefault();
-    if (e.deltaY < 0) { window.mermaidFsZoomIn(); }
-    else { window.mermaidFsZoomOut(); }
+    if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) { window.mermaidFsZoomIn(); }
+        else { window.mermaidFsZoomOut(); }
+    }
+}
+
+// Drag-to-pan in fullscreen mode
+window.initMermaidFsDrag = function() {
+    var sc = document.querySelector('.mermaid-fs-scroll');
+    if (!sc) return;
+    var dragging = false, startX, startY, scrollL, scrollT;
+    sc.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return;
+        dragging = true;
+        startX = e.clientX; startY = e.clientY;
+        scrollL = sc.scrollLeft; scrollT = sc.scrollTop;
+        sc.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        sc.scrollLeft = scrollL - (e.clientX - startX);
+        sc.scrollTop = scrollT - (e.clientY - startY);
+    });
+    document.addEventListener('mouseup', function() {
+        if (!dragging) return;
+        dragging = false;
+        sc.style.cursor = 'grab';
+    });
+    sc.style.cursor = 'grab';
 }
 </script>
 '''
@@ -962,12 +990,13 @@ def _show_fullscreen_mermaid(mermaid_text: str):
         ):
             ui.mermaid(mermaid_text).classes('mermaid-fs-flow')
     dlg.open()
-    # Auto-fit + wheel zoom after mermaid renders
+    # Auto-fit + wheel zoom + drag-to-pan after mermaid renders
     ui.timer(0.5, lambda: ui.run_javascript('''
         window.mermaidFsZoom = 1.0;
         window.mermaidFsAutoFit();
         var sc = document.querySelector('.mermaid-fs-scroll');
         if (sc) sc.addEventListener('wheel', window.mermaidFsWheel, {passive: false});
+        window.initMermaidFsDrag();
     '''), once=True)
 
 
