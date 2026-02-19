@@ -724,7 +724,7 @@ def _flow_to_mermaid(flow: dict, highlight_table: str = '') -> str:
     if not flow['nodes'] and not flow['edges']:
         return ''
 
-    lines = ['graph TB']
+    lines = ['%%{init: {"flowchart": {"useMaxWidth": false}}}%%', 'graph TB']
     for node in flow['nodes']:
         node_id = re.sub(r'[^a-zA-Z0-9_]', '_', node['id'])
         label = node['id']
@@ -747,7 +747,7 @@ def _flow_to_mermaid(flow: dict, highlight_table: str = '') -> str:
 
 def _render_mermaid_scrollable(mermaid_text: str):
     """Render a Mermaid diagram inside a scrollable container at readable scale."""
-    with ui.scroll_area().classes('w-full').style('max-height: 60vh'):
+    with ui.element('div').classes('w-full').style('overflow: auto; max-height: 60vh'):
         ui.mermaid(mermaid_text).classes('mermaid-flow')
 
 
@@ -931,8 +931,12 @@ def main_page():
         .right-drawer-toggle-btn.drawer-closed .q-icon {
             transform: rotate(180deg);
         }
+        .mermaid-flow {
+            min-width: max-content;
+        }
         .mermaid-flow svg {
             max-width: none !important;
+            width: auto !important;
             height: auto !important;
         }
         .drawer-resize-handle {
