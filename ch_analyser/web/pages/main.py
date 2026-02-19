@@ -75,6 +75,29 @@ window.initDrawerResize = function(handleEl) {
         document.addEventListener('mouseup', onMouseUp);
     });
 }
+
+window.mermaidZoom = parseFloat(sessionStorage.getItem('mermaidZoom')) || 1.0;
+
+window.applyMermaidZoom = function() {
+    document.querySelectorAll('.mermaid-flow').forEach(function(el) {
+        el.style.transform = 'scale(' + window.mermaidZoom + ')';
+    });
+    document.querySelectorAll('.mermaid-zoom-label').forEach(function(el) {
+        el.textContent = Math.round(window.mermaidZoom * 100) + '%';
+    });
+}
+
+window.mermaidZoomIn = function() {
+    window.mermaidZoom = Math.min(window.mermaidZoom + 0.1, 3.0);
+    sessionStorage.setItem('mermaidZoom', window.mermaidZoom);
+    window.applyMermaidZoom();
+}
+
+window.mermaidZoomOut = function() {
+    window.mermaidZoom = Math.max(window.mermaidZoom - 0.1, 0.3);
+    sessionStorage.setItem('mermaidZoom', window.mermaidZoom);
+    window.applyMermaidZoom();
+}
 </script>
 '''
 
@@ -746,9 +769,22 @@ def _flow_to_mermaid(flow: dict, highlight_table: str = '') -> str:
 
 
 def _render_mermaid_scrollable(mermaid_text: str):
-    """Render a Mermaid diagram inside a scrollable container at readable scale."""
-    with ui.element('div').classes('w-full').style('overflow: auto; max-height: 60vh'):
-        ui.mermaid(mermaid_text).classes('mermaid-flow')
+    """Render a Mermaid diagram inside a scrollable container with zoom controls."""
+    with ui.element('div').classes('w-full').style('position: relative'):
+        # Floating zoom controls
+        with ui.row().classes('mermaid-zoom-controls'):
+            ui.button(icon='remove', on_click=lambda: ui.run_javascript('window.mermaidZoomOut()')).props(
+                'flat dense size=sm'
+            ).classes('mermaid-zoom-btn')
+            ui.label('100%').classes('mermaid-zoom-label text-caption')
+            ui.button(icon='add', on_click=lambda: ui.run_javascript('window.mermaidZoomIn()')).props(
+                'flat dense size=sm'
+            ).classes('mermaid-zoom-btn')
+        # Scrollable diagram area
+        with ui.element('div').classes('w-full').style('overflow: auto; max-height: 60vh'):
+            ui.mermaid(mermaid_text).classes('mermaid-flow')
+    # Apply saved zoom level after render
+    ui.timer(0.3, lambda: ui.run_javascript('window.applyMermaidZoom()'), once=True)
 
 
 def _render_flow_tab(service, full_table_name: str):
@@ -933,11 +969,29 @@ def main_page():
         }
         .mermaid-flow {
             min-width: max-content;
+            transform-origin: top left;
         }
         .mermaid-flow svg {
             max-width: none !important;
             width: auto !important;
             height: auto !important;
+        }
+        .mermaid-zoom-controls {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+            padding: 2px 4px;
+            align-items: center;
+            gap: 2px;
+        }
+        .mermaid-zoom-btn {
+            min-width: 28px !important;
+            width: 28px !important;
+            height: 28px !important;
         }
         .drawer-resize-handle {
             position: absolute;
