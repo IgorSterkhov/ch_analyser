@@ -306,8 +306,8 @@ def _show_refs_dialog(title: str, refs_list: list[str]):
         for ref in refs_list:
             ui.label(ref).classes('text-body2')
         with ui.row().classes('w-full justify-end q-mt-md gap-2'):
-            ui.button('Copy', icon='content_copy',
-                      on_click=lambda: _copy_to_clipboard(text)).props('flat')
+            copy_js = f'() => window.copyToClipboard({json.dumps(text)})'
+            ui.button('Copy', icon='content_copy').props('flat').on('click', js_handler=copy_js)
             ui.button('Close', on_click=dlg.close).props('flat')
     dlg.open()
 
@@ -460,8 +460,8 @@ def _load_tables(tables_panel, columns_panel, right_drawer):
                 ui.label('Generated Queries (Tables)').classes('text-h6 q-mb-sm')
                 ui.html(f'<pre style="white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow:auto">{escaped}</pre>')
                 with ui.row().classes('w-full justify-end q-mt-md gap-2'):
-                    ui.button('Copy', icon='content_copy',
-                              on_click=lambda: _copy_to_clipboard(formatted)).props('flat')
+                    copy_js = f'() => window.copyToClipboard({json.dumps(formatted)})'
+                    ui.button('Copy', icon='content_copy').props('flat').on('click', js_handler=copy_js)
                     ui.button('Close', on_click=dlg.close).props('flat')
             dlg.open()
 
@@ -788,8 +788,8 @@ def _render_query_history_tab(service, full_table_name: str):
                     with ui.row().classes('w-full items-center justify-between q-mt-md'):
                         ui.switch('Highlight table', value=True, on_change=on_highlight_toggle)
                         with ui.row().classes('gap-2'):
-                            ui.button('Copy', icon='content_copy',
-                                      on_click=lambda: _copy_to_clipboard(formatted)).props('flat')
+                            copy_js = f'() => window.copyToClipboard({json.dumps(formatted)})'
+                            ui.button('Copy', icon='content_copy').props('flat').on('click', js_handler=copy_js)
                             ui.button('Close', on_click=dlg.close).props('flat')
                 dlg.open()
 
@@ -835,8 +835,8 @@ def _render_query_history_tab(service, full_table_name: str):
             ui.label('Generated Query').classes('text-h6 q-mb-sm')
             ui.html(f'<pre style="white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow:auto">{escaped}</pre>')
             with ui.row().classes('w-full justify-end q-mt-md gap-2'):
-                ui.button('Copy', icon='content_copy',
-                          on_click=lambda: _copy_to_clipboard(formatted)).props('flat')
+                copy_js = f'() => window.copyToClipboard({json.dumps(formatted)})'
+                ui.button('Copy', icon='content_copy').props('flat').on('click', js_handler=copy_js)
                 ui.button('Close', on_click=dlg.close).props('flat')
         dlg.open()
 

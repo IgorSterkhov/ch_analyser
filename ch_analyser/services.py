@@ -315,10 +315,10 @@ class AnalysisService:
             db, short = target.split('.', 1)
             # Regex with word boundaries to avoid substring false positives
             full_pattern = re.compile(r'\b' + re.escape(target) + r'\b')
-            short_pattern = re.compile(r'\b' + re.escape(short) + r'\b')
+            short_pattern = re.compile(r'\b' + re.escape(short) + r'\b(?!\.)')
             # Pattern to detect target as DESTINATION (TO target in MV DDL)
             to_full_pattern = re.compile(r'\bTO\s+' + re.escape(target) + r'\b', re.IGNORECASE)
-            to_short_pattern = re.compile(r'\bTO\s+' + re.escape(short) + r'\b', re.IGNORECASE)
+            to_short_pattern = re.compile(r'\bTO\s+' + re.escape(short) + r'\b(?!\.)', re.IGNORECASE)
             refs = []
             for entity_name, ddl in entities.items():
                 if entity_name == target:
@@ -361,10 +361,10 @@ class AnalysisService:
 
         # Only consider entities that reference our table as SOURCE (word boundary match)
         full_pattern = re.compile(r'\b' + re.escape(full_table_name) + r'\b')
-        short_pattern = re.compile(r'\b' + re.escape(short) + r'\b')
+        short_pattern = re.compile(r'\b' + re.escape(short) + r'\b(?!\.)')
         # Pattern to detect our table as DESTINATION (TO table in MV DDL)
         to_full_pattern = re.compile(r'\bTO\s+' + re.escape(full_table_name) + r'\b', re.IGNORECASE)
-        to_short_pattern = re.compile(r'\bTO\s+' + re.escape(short) + r'\b', re.IGNORECASE)
+        to_short_pattern = re.compile(r'\bTO\s+' + re.escape(short) + r'\b(?!\.)', re.IGNORECASE)
         referring_entities: dict[str, str] = {}
         for r in rows:
             entity = f"{r['database']}.{r['name']}"
