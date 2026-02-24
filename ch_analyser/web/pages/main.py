@@ -183,7 +183,8 @@ def _copy_to_clipboard(text: str):
     ui.run_javascript(f'window.copyToClipboard({json.dumps(text)})')
 
 
-def _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer):
+def _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
+                             text_logs_panel=None, main_tabs_loaded=None):
     """Render the list of connections into conn_container."""
     conn_container.clear()
     connections = state.conn_manager.list_connections()
@@ -202,7 +203,7 @@ def _build_connections_panel(conn_container, tables_panel, columns_panel, server
             bg = 'bg-blue-1' if is_active else ''
 
             card = ui.card().classes(f'w-full q-pa-xs q-mb-xs cursor-pointer {bg}').props('flat bordered')
-            card.on('click', lambda c=cfg: _on_connect(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer))
+            card.on('click', lambda c=cfg: _on_connect(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded))
 
             with card:
                 with ui.row().classes('items-center w-full justify-between no-wrap'):
@@ -219,15 +220,16 @@ def _build_connections_panel(conn_container, tables_panel, columns_panel, server
                             with ui.menu():
                                 ui.menu_item(
                                     'Edit',
-                                    on_click=lambda c=cfg: _on_edit(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer),
+                                    on_click=lambda c=cfg: _on_edit(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded),
                                 )
                                 ui.menu_item(
                                     'Delete',
-                                    on_click=lambda c=cfg: _on_delete(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer),
+                                    on_click=lambda c=cfg: _on_delete(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded),
                                 )
 
 
-def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer):
+def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
+                text_logs_panel=None, main_tabs_loaded=None):
     global _connecting_name
 
     # Don't reconnect if already connected to this one
@@ -238,7 +240,7 @@ def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_ba
         # Show "Connecting..." state
         _connecting_name = cfg.name
         state.active_connection_name = None
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
 
         if state.client and state.client.connected:
             state.client.disconnect()
@@ -253,34 +255,45 @@ def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_ba
         state.active_connection_name = cfg.name
         _connecting_name = None
 
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
         _build_server_info_bar(server_info_bar)
         _load_tables(tables_panel, columns_panel, right_drawer)
         _clear_columns(columns_panel, right_drawer)
+
+        # Reset lazy-load tracking for main tabs
+        if main_tabs_loaded is not None:
+            main_tabs_loaded.clear()
+        # Clear text_logs_panel on reconnect
+        if text_logs_panel is not None:
+            text_logs_panel.clear()
+            with text_logs_panel:
+                ui.label('Switch to Text Logs tab to load.').classes('text-grey-7')
 
         # Auto-hide connections drawer after successful connect
         drawer.hide()
     except Exception as ex:
         _connecting_name = None
         state.active_connection_name = None
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
         _build_server_info_bar(server_info_bar)
         ui.notify(f'Connection failed: {ex}', type='negative')
 
 
-def _on_edit(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer):
+def _on_edit(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
+             text_logs_panel=None, main_tabs_loaded=None):
     def save(new_cfg, old_name=cfg.name):
         try:
             state.conn_manager.update_connection(old_name, new_cfg)
             ui.notify(f'Updated "{new_cfg.name}"', type='positive')
-            _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
+            _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
         except Exception as ex:
             ui.notify(str(ex), type='negative')
 
     connection_dialog(on_save=save, existing=cfg)
 
 
-def _on_delete(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer):
+def _on_delete(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
+               text_logs_panel=None, main_tabs_loaded=None):
     try:
         state.conn_manager.delete_connection(cfg.name)
         if state.active_connection_name == cfg.name:
@@ -293,7 +306,7 @@ def _on_delete(cfg, conn_container, tables_panel, columns_panel, server_info_bar
             _clear_columns(columns_panel, right_drawer)
             _build_server_info_bar(server_info_bar)
         ui.notify(f'Deleted "{cfg.name}"', type='positive')
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
     except Exception as ex:
         ui.notify(str(ex), type='negative')
 
@@ -310,6 +323,182 @@ def _show_refs_dialog(title: str, refs_list: list[str]):
             ui.button('Copy', icon='content_copy').props('flat').on('click', js_handler=copy_js)
             ui.button('Close', on_click=dlg.close).props('flat')
     dlg.open()
+
+
+def _load_text_logs(text_logs_panel):
+    """Fetch and render text_log summary into the Text Logs tab."""
+    text_logs_panel.clear()
+    service = state.service
+    if not service:
+        with text_logs_panel:
+            ui.label('Select a connection.').classes('text-grey-7')
+        return
+
+    try:
+        data = service.get_text_log_summary()
+    except Exception as ex:
+        with text_logs_panel:
+            ui.label(f'Failed to load text logs: {ex}').classes('text-negative')
+        return
+
+    with text_logs_panel:
+        if not data:
+            ui.label('No text log entries found (level <= Warning, last 2 weeks).').classes('text-grey-7')
+            return
+
+        with ui.splitter(value=100).classes('w-full').style(
+            'height: calc(100vh - 220px)'
+        ) as splitter:
+            with splitter.before:
+                # Refresh button
+                ui.button('Refresh', icon='refresh',
+                          on_click=lambda: _load_text_logs(text_logs_panel)).props('flat dense color=primary')
+
+                # Summary table
+                columns = [
+                    {'name': 'thread_name', 'label': 'Thread', 'field': 'thread_name', 'align': 'left', 'sortable': True},
+                    {'name': 'level_name', 'label': 'Level', 'field': 'level_name', 'align': 'center', 'sortable': True},
+                    {'name': 'message_example', 'label': 'Message Example', 'field': 'message_example', 'align': 'left'},
+                    {'name': 'max_time', 'label': 'Last Seen', 'field': 'max_time', 'align': 'center', 'sortable': True},
+                    {'name': 'cnt', 'label': 'Count', 'field': 'cnt', 'align': 'right', 'sortable': True,
+                     ':sort': '(a, b) => a - b'},
+                ]
+                rows = []
+                for i, r in enumerate(data):
+                    msg = r['message_example']
+                    rows.append({
+                        '_row_id': i,
+                        'thread_name': r['thread_name'],
+                        'level': r['level'],
+                        'level_name': r['level_name'],
+                        'message_example': msg[:100] + ('...' if len(msg) > 100 else ''),
+                        'max_time': r['max_time'],
+                        'cnt': r['cnt'],
+                    })
+
+                tbl = ui.table(
+                    columns=columns,
+                    rows=rows,
+                    row_key='_row_id',
+                    pagination={'rowsPerPage': 20, 'sortBy': 'max_time', 'descending': True},
+                ).classes('w-full')
+
+                tbl.add_slot('body', r'''
+                    <q-tr :props="props">
+                        <q-td key="thread_name" :props="props">
+                            <q-btn flat dense no-caps size="sm" color="primary"
+                                   :label="props.row.thread_name"
+                                   @click.stop="$parent.$emit('thread-click', props.row)" />
+                        </q-td>
+                        <q-td key="level_name" :props="props">
+                            <q-badge :color="
+                                props.row.level_name === 'Fatal' ? 'black' :
+                                props.row.level_name === 'Critical' ? 'deep-purple' :
+                                props.row.level_name === 'Error' ? 'negative' :
+                                'warning'
+                            " :label="props.row.level_name" />
+                        </q-td>
+                        <q-td key="message_example" :props="props">
+                            <span class="text-caption">{{ props.row.message_example }}</span>
+                        </q-td>
+                        <q-td key="max_time" :props="props">{{ props.row.max_time }}</q-td>
+                        <q-td key="cnt" :props="props">{{ props.row.cnt.toLocaleString() }}</q-td>
+                    </q-tr>
+                ''')
+
+            with splitter.after:
+                detail_panel = ui.column().classes('w-full q-pa-sm')
+                with detail_panel:
+                    ui.label('Click a thread name to see details.').classes('text-grey-7')
+
+        def on_thread_click(e):
+            row = e.args
+            splitter.set_value(55)
+            _load_text_log_detail(detail_panel, row['thread_name'], row.get('level'))
+
+        tbl.on('thread-click', on_thread_click)
+
+
+def _load_text_log_detail(detail_panel, thread_name: str, level: int | None = None):
+    """Load and render detail text_log entries for a thread."""
+    detail_panel.clear()
+    service = state.service
+    if not service:
+        return
+
+    try:
+        data = service.get_text_log_detail(thread_name, level)
+    except Exception as ex:
+        with detail_panel:
+            ui.label(f'Failed to load detail: {ex}').classes('text-negative')
+        return
+
+    all_columns = ['event_time_microseconds', 'thread_name', 'level_name', 'query_id', 'logger_name', 'message']
+    col_labels = {
+        'event_time_microseconds': 'Time',
+        'thread_name': 'Thread',
+        'level_name': 'Level',
+        'query_id': 'Query ID',
+        'logger_name': 'Logger',
+        'message': 'Message',
+    }
+    # All visible by default except thread_name
+    visible_cols = {c: (c != 'thread_name') for c in all_columns}
+
+    with detail_panel:
+        ui.label(f'Thread: {thread_name}').classes('text-subtitle1 text-weight-bold q-mb-xs')
+
+        if not data:
+            ui.label('No entries found.').classes('text-grey-7')
+            return
+
+        # Column toggle buttons
+        toggle_buttons: dict = {}
+        with ui.row().classes('w-full flex-wrap gap-1 q-mb-sm'):
+            for col in all_columns:
+                btn = ui.button(col_labels[col])
+                if visible_cols[col]:
+                    btn.props('push color=primary text-color=white no-caps size=sm')
+                else:
+                    btn.props('push color=grey-4 text-color=grey-8 no-caps size=sm')
+                toggle_buttons[col] = btn
+
+        # Table with all column definitions
+        col_defs = []
+        for c in all_columns:
+            col_defs.append({
+                'name': c, 'label': col_labels[c],
+                'field': c, 'align': 'left', 'sortable': True,
+            })
+
+        detail_rows = [{c: r.get(c, '') for c in all_columns} for r in data]
+
+        detail_tbl = ui.table(
+            columns=col_defs,
+            rows=detail_rows,
+            row_key='event_time_microseconds',
+            pagination={'rowsPerPage': 50, 'sortBy': 'event_time_microseconds', 'descending': True},
+        ).classes('w-full')
+
+        # Set initial visible columns
+        initial_visible = [c for c in all_columns if visible_cols[c]]
+        detail_tbl._props['visible-columns'] = initial_visible
+        detail_tbl.update()
+
+        # Toggle handler
+        def _toggle_col(col_name):
+            visible_cols[col_name] = not visible_cols[col_name]
+            btn = toggle_buttons[col_name]
+            if visible_cols[col_name]:
+                btn.props('push color=primary text-color=white no-caps size=sm')
+            else:
+                btn.props('push color=grey-4 text-color=grey-8 no-caps size=sm')
+            btn.update()
+            detail_tbl._props['visible-columns'] = [c for c in all_columns if visible_cols[c]]
+            detail_tbl.update()
+
+        for col in all_columns:
+            toggle_buttons[col].on_click(lambda c=col: _toggle_col(c))
 
 
 def _load_tables(tables_panel, columns_panel, right_drawer):
@@ -1324,34 +1513,73 @@ def main_page():
     ).classes('right-drawer-toggle-btn drawer-closed')
 
     # Main content area
-    main_content = ui.column().classes('w-full q-pa-sm gap-2').style('height: calc(100vh - 64px)')
+    main_content = ui.column().classes('w-full q-pa-sm gap-0').style('height: calc(100vh - 64px)')
 
     with main_content:
-        # Server info bar
+        # Server info bar — above all tabs
         server_info_bar = ui.card().classes('q-pa-sm w-full').props('flat bordered')
         server_info_bar.set_visibility(False)
 
-        # Tables panel (full width, Table Details is now in right drawer)
-        with ui.card().classes('q-pa-sm overflow-auto w-full flex-grow').style('max-height: calc(100vh - 150px)'):
-            ui.label('Tables').classes('text-h6 q-mb-sm')
-            tables_panel = ui.column().classes('w-full')
-            with tables_panel:
-                ui.label('Select a connection.').classes('text-grey-7')
+        # Main-level tabs
+        with ui.tabs().classes('w-full').props('dense') as main_tabs:
+            tables_main_tab = ui.tab('Tables', icon='table_chart')
+            users_main_tab = ui.tab('Users', icon='people')
+            text_logs_main_tab = ui.tab('Text Logs', icon='article')
+
+        with ui.tab_panels(main_tabs, value=tables_main_tab).classes(
+            'w-full q-pt-none flex-grow'
+        ).style('max-height: calc(100vh - 150px); overflow: auto'):
+            with ui.tab_panel(tables_main_tab).classes('q-pa-xs'):
+                tables_panel = ui.column().classes('w-full')
+                with tables_panel:
+                    ui.label('Select a connection.').classes('text-grey-7')
+            with ui.tab_panel(users_main_tab).classes('q-pa-xs'):
+                ui.label('Users — coming soon.').classes('text-grey-7')
+            with ui.tab_panel(text_logs_main_tab).classes('q-pa-xs'):
+                text_logs_panel = ui.column().classes('w-full')
+                with text_logs_panel:
+                    ui.label('Select a connection.').classes('text-grey-7')
+
+    # Track which main tabs have been loaded (lazy loading)
+    _main_tabs_loaded: set = set()
+    _active_main_tab: list = ['Tables']
+
+    def _on_main_tab_change(e):
+        tab = e.value
+        _active_main_tab[0] = tab
+        # Hide right drawer + toggle button when leaving Tables
+        if tab != 'Tables':
+            if right_drawer.value:
+                right_drawer.hide()
+            ui.run_javascript(
+                "document.querySelector('.right-drawer-toggle-btn')?.style.setProperty('display','none')"
+            )
+        else:
+            ui.run_javascript(
+                "document.querySelector('.right-drawer-toggle-btn')?.style.setProperty('display','')"
+            )
+        # Lazy-load Text Logs
+        if tab == 'Text Logs' and 'Text Logs' not in _main_tabs_loaded and state.service:
+            _main_tabs_loaded.add('Text Logs')
+            _load_text_logs(text_logs_panel)
+
+    main_tabs.on_value_change(_on_main_tab_change)
 
     # Auto-hide drawers when clicking on main content
     def _on_main_click():
         global _suppress_right_drawer_hide
         if drawer.value:
             drawer.hide()
-        if _suppress_right_drawer_hide:
-            _suppress_right_drawer_hide = False
-        elif right_drawer.value:
-            right_drawer.hide()
+        if _active_main_tab[0] == 'Tables':
+            if _suppress_right_drawer_hide:
+                _suppress_right_drawer_hide = False
+            elif right_drawer.value:
+                right_drawer.hide()
 
     main_content.on('click', _on_main_click)
 
     # Build connections list
-    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
+    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, _main_tabs_loaded)
 
     # Add button — outside conn_container, won't be cleared on rebuild
     if is_admin():
@@ -1360,7 +1588,7 @@ def main_page():
                 try:
                     state.conn_manager.add_connection(cfg)
                     ui.notify(f'Added "{cfg.name}"', type='positive')
-                    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer)
+                    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, _main_tabs_loaded)
                 except Exception as ex:
                     ui.notify(str(ex), type='negative')
             connection_dialog(on_save=save)

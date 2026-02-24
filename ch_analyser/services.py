@@ -569,3 +569,53 @@ class AnalysisService:
         nodes = [{'id': t, 'type': 'table'} for t in all_tables]
         edges = [{'from': s, 'to': d} for s, d in edges_set]
         return {'nodes': nodes, 'edges': edges}
+
+    # ── Text Log analysis ───────────────────────────────────────────
+
+    def get_text_log_summary(self) -> list[dict]:
+        """Aggregated text_log summary grouped by thread_name, level, message_format_string."""
+        try:
+            rows = self._client.execute(
+                "SELECT thread_name, level, "
+                "  multiIf(level=1,'Fatal', level=2,'Critical', level=3,'Error', "
+                "          level=4,'Warning', toString(level)) AS level_name, "
+                "  argMax(message, event_time_microseconds) AS message_example, "
+                "  max(event_time_microseconds) AS max_time, "
+                "  count() AS cnt "
+                "FROM system.text_log "
+                "WHERE event_time_microseconds > today() - interval 2 week "
+                "AND level <= 4 "
+                "GROUP BY thread_name, level, message_format_string "
+                "ORDER BY max_time DESC"
+            )
+            for r in rows:
+                r['max_time'] = str(r['max_time'])
+            return rows
+        except Exception as e:
+            logger.error("Failed to get text_log summary: %s", e)
+            return []
+
+    def get_text_log_detail(self, thread_name: str, level: int | None = None) -> list[dict]:
+        """Detailed text_log entries for a specific thread_name."""
+        try:
+            parts = [
+                "SELECT event_time_microseconds, thread_name, "
+                "  multiIf(level=1,'Fatal', level=2,'Critical', level=3,'Error', "
+                "          level=4,'Warning', toString(level)) AS level_name, "
+                "  query_id, logger_name, message "
+                "FROM system.text_log "
+                "WHERE event_time_microseconds > today() - interval 2 week "
+                "AND thread_name = %(thread_name)s"
+            ]
+            params: dict = {"thread_name": thread_name}
+            if level is not None:
+                parts.append("AND level = %(level)s")
+                params["level"] = level
+            parts.append("ORDER BY event_time_microseconds DESC LIMIT 200")
+            rows = self._client.execute(' '.join(parts), params)
+            for r in rows:
+                r['event_time_microseconds'] = str(r['event_time_microseconds'])
+            return rows
+        except Exception as e:
+            logger.error("Failed to get text_log detail for thread %s: %s", thread_name, e)
+            return []
