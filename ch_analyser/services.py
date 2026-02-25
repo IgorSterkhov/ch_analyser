@@ -5,14 +5,17 @@ from ch_analyser.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-EXCLUDED_DATABASES = ("system", "INFORMATION_SCHEMA", "information_schema")
+EXCLUDED_DATABASES = ("system", "INFORMATION_SCHEMA", "information_schema",
+                      "_temporary_and_external_tables")
+
+QUERY_LOG_DAYS_DEFAULT = 30
 
 
 class AnalysisService:
     def __init__(self, client: CHClient):
         self._client = client
 
-    def get_tables(self) -> list[dict]:
+    def get_tables(self, log_days: int = QUERY_LOG_DAYS_DEFAULT) -> list[dict]:
         excluded = list(EXCLUDED_DATABASES)
 
         # 1. Table sizes from system.parts (all databases except system ones)
@@ -42,7 +45,9 @@ class AnalysisService:
                 "SELECT arrayJoin(tables) AS table_name, max(event_time) AS last_select "
                 "FROM system.query_log "
                 "WHERE type = 'QueryFinish' AND query_kind = 'Select' "
-                "GROUP BY table_name",
+                f"AND event_time > now() - INTERVAL {int(log_days)} DAY "
+                "GROUP BY table_name "
+                "HAVING NOT startsWith(table_name, '_temporary_and_external_tables.')",
             )
             for r in rows:
                 tname = r["table_name"]
@@ -51,7 +56,7 @@ class AnalysisService:
             logger.warning("Failed to get last SELECT times: %s", e)
 
         # 3. Last INSERT per table (prefer part_log, fallback query_log + query_views_log)
-        last_inserts = self._get_last_inserts(excluded)
+        last_inserts = self._get_last_inserts(excluded, log_days=log_days)
 
         # 4. Replicated tables (active on multiple replicas)
         replicated = set()
@@ -105,7 +110,7 @@ class AnalysisService:
         result.sort(key=lambda t: t["size_bytes"], reverse=True)
         return result
 
-    def _get_last_inserts(self, excluded: list) -> dict[str, str]:
+    def _get_last_inserts(self, excluded: list, log_days: int = QUERY_LOG_DAYS_DEFAULT) -> dict[str, str]:
         """Get last insert time per table. Prefer part_log, fallback to query_log + query_views_log."""
         result: dict[str, str] = {}
 
@@ -130,7 +135,9 @@ class AnalysisService:
                 "SELECT arrayJoin(tables) AS table_name, max(event_time) AS last_insert "
                 "FROM system.query_log "
                 "WHERE type = 'QueryFinish' AND query_kind = 'Insert' "
-                "GROUP BY table_name",
+                f"AND event_time > now() - INTERVAL {int(log_days)} DAY "
+                "GROUP BY table_name "
+                "HAVING NOT startsWith(table_name, '_temporary_and_external_tables.')",
             )
             for r in rows:
                 result[r["table_name"]] = str(r["last_insert"])
@@ -206,7 +213,8 @@ class AnalysisService:
         return rows
 
     def get_query_history_filters(self, full_table_name: str,
-                                   direct_only: bool = True) -> dict:
+                                   direct_only: bool = True,
+                                   log_days: int = QUERY_LOG_DAYS_DEFAULT) -> dict:
         """Get unique user/kind pairs from the full query history for a table."""
         short_name = full_table_name.split('.', 1)[1] if '.' in full_table_name else full_table_name
         try:
@@ -215,6 +223,7 @@ class AnalysisService:
                 "FROM system.query_log "
                 "WHERE type = 'QueryFinish' "
                 "AND has(tables, %(table)s) "
+                f"AND event_time > now() - INTERVAL {int(log_days)} DAY "
             )
             if direct_only:
                 sql += f"AND positionCaseInsensitive(query, '{short_name}') > 0 "
@@ -230,7 +239,8 @@ class AnalysisService:
     def get_query_history(self, full_table_name: str, limit: int = 200,
                           users: list[str] | None = None,
                           kinds: list[str] | None = None,
-                          direct_only: bool = True) -> list[dict]:
+                          direct_only: bool = True,
+                          log_days: int = QUERY_LOG_DAYS_DEFAULT) -> list[dict]:
         short_name = full_table_name.split('.', 1)[1] if '.' in full_table_name else full_table_name
         try:
             select_cols = "event_time, user, query_kind, query"
@@ -240,7 +250,8 @@ class AnalysisService:
                 f"SELECT {select_cols} "
                 "FROM system.query_log "
                 "WHERE type = 'QueryFinish' "
-                "AND has(tables, %(table)s)",
+                "AND has(tables, %(table)s) "
+                f"AND event_time > now() - INTERVAL {int(log_days)} DAY",
             ]
             params: dict = {"table": full_table_name, "limit": limit}
 
@@ -267,7 +278,8 @@ class AnalysisService:
     def get_query_history_sql(self, full_table_name: str, limit: int = 200,
                               users: list[str] | None = None,
                               kinds: list[str] | None = None,
-                              direct_only: bool = True) -> str:
+                              direct_only: bool = True,
+                              log_days: int = QUERY_LOG_DAYS_DEFAULT) -> str:
         """Return the SQL query used by get_query_history (with parameters substituted)."""
         short_name = full_table_name.split('.', 1)[1] if '.' in full_table_name else full_table_name
         select_cols = "event_time, user, query_kind, query"
@@ -278,6 +290,7 @@ class AnalysisService:
             "FROM system.query_log",
             "WHERE type = 'QueryFinish'",
             f"AND has(tables, '{full_table_name}')",
+            f"AND event_time > now() - INTERVAL {int(log_days)} DAY",
         ]
         if users:
             user_list = ', '.join(f"'{u}'" for u in users)
@@ -404,7 +417,7 @@ class AnalysisService:
 
         return result
 
-    def get_tables_sql(self) -> str:
+    def get_tables_sql(self, log_days: int = QUERY_LOG_DAYS_DEFAULT) -> str:
         """Return the SQL queries used by get_tables()."""
         excluded = list(EXCLUDED_DATABASES)
         excluded_str = ', '.join(f"'{db}'" for db in excluded)
@@ -420,7 +433,9 @@ class AnalysisService:
             f"SELECT arrayJoin(tables) AS table_name, max(event_time) AS last_select "
             f"FROM system.query_log "
             f"WHERE type = 'QueryFinish' AND query_kind = 'Select' "
-            f"GROUP BY table_name",
+            f"AND event_time > now() - INTERVAL {int(log_days)} DAY "
+            f"GROUP BY table_name "
+            f"HAVING NOT startsWith(table_name, '_temporary_and_external_tables.')",
 
             f"-- 3a. Last INSERT (preferred: part_log)\n"
             f"SELECT database, table, max(event_time) AS last_insert "
@@ -432,7 +447,9 @@ class AnalysisService:
             f"SELECT arrayJoin(tables) AS table_name, max(event_time) AS last_insert "
             f"FROM system.query_log "
             f"WHERE type = 'QueryFinish' AND query_kind = 'Insert' "
-            f"GROUP BY table_name",
+            f"AND event_time > now() - INTERVAL {int(log_days)} DAY "
+            f"GROUP BY table_name "
+            f"HAVING NOT startsWith(table_name, '_temporary_and_external_tables.')",
 
             f"-- 3c. Last INSERT fallback: query_views_log\n"
             f"SELECT database || '.' || view_name AS table_name, "
@@ -533,7 +550,7 @@ class AnalysisService:
         ]
         return {'nodes': relevant_nodes, 'edges': relevant_edges}
 
-    def get_query_flow(self, full_table_name: str) -> dict:
+    def get_query_flow(self, full_table_name: str, log_days: int = QUERY_LOG_DAYS_DEFAULT) -> dict:
         """Get query-based data flow (INSERT...SELECT patterns) involving the given table."""
         try:
             rows = self._client.execute(
@@ -543,6 +560,7 @@ class AnalysisService:
                 "AND query_kind = 'Insert' "
                 "AND length(tables) > 1 "
                 "AND has(tables, %(table)s) "
+                f"AND event_time > now() - INTERVAL {int(log_days)} DAY "
                 "LIMIT 1000",
                 {"table": full_table_name},
             )

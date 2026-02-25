@@ -109,7 +109,8 @@ class CHClient:
     def connected(self) -> bool:
         return self._native_client is not None or self._http_client is not None
 
-    def execute(self, query: str, params: dict | None = None) -> list[dict]:
+    def execute(self, query: str, params: dict | None = None,
+                max_rows: int | None = None) -> list[dict]:
         if not self.connected:
             raise RuntimeError("Not connected to ClickHouse")
         logger.debug("Executing: %.200s | params=%s", query.strip(), params)
@@ -119,6 +120,9 @@ class CHClient:
         else:
             rows = self._execute_native(query, params)
         elapsed = time.monotonic() - start
+        if max_rows and len(rows) > max_rows:
+            logger.warning("Result truncated: %d rows -> %d (max_rows limit)", len(rows), max_rows)
+            rows = rows[:max_rows]
         logger.debug("Query OK: %.2fs, %d rows", elapsed, len(rows))
         return rows
 

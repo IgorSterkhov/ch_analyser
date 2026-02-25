@@ -274,13 +274,13 @@ async def _on_connect_async(cfg, conn_container, tables_panel, columns_panel, se
         # Fetch data in background threads, render in main thread
         try:
             disks = await run.io_bound(lambda: state.service.get_disk_info())
-            _render_server_info_bar(server_info_bar, disks)
+            _render_server_info_bar(server_info_bar, disks, tables_panel, columns_panel, right_drawer)
         except Exception as ex:
             server_info_bar.set_visibility(False)
             ui.notify(f'Disk info error: {ex}', type='warning')
 
         try:
-            tables_data = await run.io_bound(lambda: state.service.get_tables())
+            tables_data = await run.io_bound(lambda: state.service.get_tables(log_days=state.query_log_days))
             try:
                 refs_data = await run.io_bound(lambda: state.service.get_table_references())
             except Exception:
@@ -308,7 +308,7 @@ async def _on_connect_async(cfg, conn_container, tables_panel, columns_panel, se
         _connecting_name = None
         state.active_connection_name = None
         _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
-        _build_server_info_bar(server_info_bar)
+        _build_server_info_bar(server_info_bar, tables_panel, columns_panel, right_drawer)
         ui.notify(f'Connection failed: {ex}', type='negative')
 
 
@@ -337,7 +337,7 @@ def _on_delete(cfg, conn_container, tables_panel, columns_panel, server_info_bar
             state.active_connection_name = None
             _clear_tables(tables_panel)
             _clear_columns(columns_panel, right_drawer)
-            _build_server_info_bar(server_info_bar)
+            _build_server_info_bar(server_info_bar, tables_panel, columns_panel, right_drawer)
         ui.notify(f'Deleted "{cfg.name}"', type='positive')
         _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
     except Exception as ex:
@@ -544,7 +544,7 @@ def _load_tables(tables_panel, columns_panel, right_drawer):
         return
 
     try:
-        data = service.get_tables()
+        data = service.get_tables(log_days=state.query_log_days)
     except Exception as ex:
         with tables_panel:
             ui.notify(f'Failed to load tables: {ex}', type='negative')
@@ -680,7 +680,7 @@ def _render_tables(tables_panel, columns_panel, right_drawer, data, refs):
 
         # --- Show generated SQL button ---
         def _show_tables_sql():
-            raw_sql = service.get_tables_sql()
+            raw_sql = service.get_tables_sql(log_days=state.query_log_days)
             formatted = format_clickhouse_sql(raw_sql)
             escaped = html.escape(formatted)
             with ui.dialog() as dlg, ui.card().classes('w-full max-w-3xl q-pa-md'):
@@ -835,7 +835,7 @@ def _render_query_history_tab(service, full_table_name: str):
     """Render query history table with server-side filtering."""
     # Get filter options from server (GROUP BY query)
     try:
-        filters = service.get_query_history_filters(full_table_name)
+        filters = service.get_query_history_filters(full_table_name, log_days=state.query_log_days)
     except Exception as ex:
         ui.notify(f'Failed to load query history filters: {ex}', type='negative')
         return
@@ -915,6 +915,7 @@ def _render_query_history_tab(service, full_table_name: str):
                 users=users_param,
                 kinds=kinds_param,
                 direct_only=direct_only[0],
+                log_days=state.query_log_days,
             )
         except Exception as ex:
             ui.notify(f'Failed to load query history: {ex}', type='negative')
@@ -1055,6 +1056,7 @@ def _render_query_history_tab(service, full_table_name: str):
             users=sorted(active_users) if len(active_users) < len(unique_users) else None,
             kinds=sorted(active_kinds) if len(active_kinds) < len(unique_kinds) else None,
             direct_only=direct_only[0],
+            log_days=state.query_log_days,
         )
         formatted = format_clickhouse_sql(raw_sql)
         escaped = html.escape(formatted)
@@ -1071,7 +1073,7 @@ def _render_query_history_tab(service, full_table_name: str):
         """Reload filter options (respecting Direct toggle) and refresh data."""
         nonlocal unique_users, unique_kinds, counts
         try:
-            new_filters = service.get_query_history_filters(full_table_name, direct_only=direct_only[0])
+            new_filters = service.get_query_history_filters(full_table_name, direct_only=direct_only[0], log_days=state.query_log_days)
         except Exception:
             new_filters = {"users": [], "kinds": [], "counts": []}
         unique_users = new_filters['users']
@@ -1273,7 +1275,7 @@ def _render_flow_tab(service, full_table_name: str):
 
         with ui.tab_panel(query_tab):
             try:
-                flow = service.get_query_flow(full_table_name)
+                flow = service.get_query_flow(full_table_name, log_days=state.query_log_days)
             except Exception as ex:
                 ui.notify(f'Failed to load query flow: {ex}', type='negative')
                 flow = {'nodes': [], 'edges': []}
@@ -1287,7 +1289,7 @@ def _render_flow_tab(service, full_table_name: str):
         with ui.tab_panel(full_tab):
             try:
                 mv_flow = service.get_mv_flow(full_table_name)
-                query_flow = service.get_query_flow(full_table_name)
+                query_flow = service.get_query_flow(full_table_name, log_days=state.query_log_days)
             except Exception as ex:
                 ui.notify(f'Failed to load flow: {ex}', type='negative')
                 mv_flow = {'nodes': [], 'edges': []}
@@ -1329,7 +1331,7 @@ def _clear_columns(columns_panel, right_drawer=None):
         ui.label('Select a table.').classes('text-grey-7')
 
 
-def _build_server_info_bar(bar_container):
+def _build_server_info_bar(bar_container, tables_panel=None, columns_panel=None, right_drawer=None):
     """Fetch disk info and render (sync, for Refresh button)."""
     service = state.service
     if not service or not state.active_connection_name:
@@ -1343,10 +1345,10 @@ def _build_server_info_bar(bar_container):
         bar_container.set_visibility(False)
         ui.notify(f'Disk info error: {ex}', type='warning')
         return
-    _render_server_info_bar(bar_container, disks)
+    _render_server_info_bar(bar_container, disks, tables_panel, columns_panel, right_drawer)
 
 
-def _render_server_info_bar(bar_container, disks):
+def _render_server_info_bar(bar_container, disks, tables_panel=None, columns_panel=None, right_drawer=None):
     """Render pre-fetched disk info into the bar container (UI-only)."""
     bar_container.clear()
     if not disks:
@@ -1370,6 +1372,19 @@ def _render_server_info_bar(bar_container, disks):
                     color=color,
                 ).props('rounded track-color=grey-3').style('max-width: 200px; height: 8px')
                 ui.label(f'{pct:.1f}%').classes(f'text-weight-bold text-{color}')
+                ui.separator().props('vertical').style('height: 20px')
+                ui.label('Query log:').classes('text-grey-7')
+
+                def _on_days_change(e, tp=tables_panel, cp=columns_panel, rd=right_drawer):
+                    state.query_log_days = e.value
+                    if tp and cp and rd:
+                        _load_tables(tp, cp, rd)
+
+                ui.select(
+                    options={7: '7d', 30: '30d', 90: '90d', 365: '1y'},
+                    value=state.query_log_days,
+                    on_change=_on_days_change,
+                ).props('dense outlined').classes('q-ml-none').style('min-width: 70px')
 
 
 @ui.page('/')
@@ -1643,5 +1658,5 @@ def main_page():
 
     # If already connected, show tables and server info
     if state.service:
-        _build_server_info_bar(server_info_bar)
+        _build_server_info_bar(server_info_bar, tables_panel, columns_panel, right_drawer)
         _load_tables(tables_panel, columns_panel, right_drawer)
