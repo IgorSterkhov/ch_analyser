@@ -51,6 +51,13 @@ class CHClient:
             self._connect_native()
         logger.info("Connected to ClickHouse at %s:%s", self._config.host, self._config.port)
 
+    def _log_params(self, kwargs: dict, label: str):
+        """Log connection parameters with password masked."""
+        safe = {k: v for k, v in kwargs.items()}
+        if "password" in safe:
+            safe["password"] = "***" if safe["password"] else "(empty)"
+        logger.info("%s params: %s", label, safe)
+
     def _connect_native(self):
         kwargs = dict(
             host=self._config.host,
@@ -64,6 +71,7 @@ class CHClient:
             kwargs["secure"] = True
             if self._config.ca_cert:
                 kwargs["ca_certs"] = self._config.ca_cert
+        self._log_params(kwargs, "Native connection")
         self._native_client = NativeClient(**kwargs)
         self._native_client.execute("SELECT 1")
 
@@ -83,6 +91,7 @@ class CHClient:
                 kwargs["ca_cert"] = self._config.ca_cert
             else:
                 kwargs["verify"] = False
+        self._log_params(kwargs, "HTTP connection")
         self._http_client = clickhouse_connect.get_client(**kwargs)
         self._http_client.query("SELECT 1")
 
