@@ -4,7 +4,7 @@ import html
 import json
 import re
 
-from nicegui import ui
+from nicegui import background_tasks, run, ui
 
 from ch_analyser.client import CHClient
 from ch_analyser.config import ConnectionConfig
@@ -230,34 +230,67 @@ def _build_connections_panel(conn_container, tables_panel, columns_panel, server
 
 def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
                 text_logs_panel=None, main_tabs_loaded=None):
+    """Sync entry point — shows 'Connecting...' and schedules async work."""
     global _connecting_name
 
     # Don't reconnect if already connected to this one
     if state.active_connection_name == cfg.name:
         return
 
-    try:
-        # Show "Connecting..." state
-        _connecting_name = cfg.name
-        state.active_connection_name = None
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
+    _connecting_name = cfg.name
+    state.active_connection_name = None
+    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
 
+    background_tasks.create(
+        _on_connect_async(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
+    )
+
+
+async def _on_connect_async(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
+                             text_logs_panel=None, main_tabs_loaded=None):
+    """Async connection flow — IO in background threads, UI in main thread."""
+    global _connecting_name
+    try:
         if state.client and state.client.connected:
             state.client.disconnect()
 
         # Inject global CA cert
         cfg.ca_cert = state.conn_manager.ca_cert
 
-        client = CHClient(cfg)
-        client.connect()
+        # Connect in background thread (does not block event loop)
+        def _do_connect():
+            client = CHClient(cfg)
+            client.connect()
+            return client
+
+        client = await run.io_bound(_do_connect)
         state.client = client
         state.service = AnalysisService(client)
         state.active_connection_name = cfg.name
         _connecting_name = None
 
         _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
-        _build_server_info_bar(server_info_bar)
-        _load_tables(tables_panel, columns_panel, right_drawer)
+
+        # Fetch data in background threads, render in main thread
+        try:
+            disks = await run.io_bound(lambda: state.service.get_disk_info())
+            _render_server_info_bar(server_info_bar, disks)
+        except Exception as ex:
+            server_info_bar.set_visibility(False)
+            ui.notify(f'Disk info error: {ex}', type='warning')
+
+        try:
+            tables_data = await run.io_bound(lambda: state.service.get_tables())
+            try:
+                refs_data = await run.io_bound(lambda: state.service.get_table_references())
+            except Exception:
+                refs_data = {}
+            _render_tables(tables_panel, columns_panel, right_drawer, tables_data, refs_data)
+        except Exception as ex:
+            tables_panel.clear()
+            with tables_panel:
+                ui.notify(f'Failed to load tables: {ex}', type='negative')
+
         _clear_columns(columns_panel, right_drawer)
 
         # Reset lazy-load tracking for main tabs
@@ -502,7 +535,7 @@ def _load_text_log_detail(detail_panel, thread_name: str, level: int | None = No
 
 
 def _load_tables(tables_panel, columns_panel, right_drawer):
-    """Fetch and render tables into the center panel."""
+    """Fetch and render tables (sync, for Refresh button)."""
     tables_panel.clear()
     service = state.service
     if not service:
@@ -517,12 +550,17 @@ def _load_tables(tables_panel, columns_panel, right_drawer):
             ui.notify(f'Failed to load tables: {ex}', type='negative')
         return
 
-    # Get references for all tables
     try:
         refs = service.get_table_references()
     except Exception:
         refs = {}
 
+    _render_tables(tables_panel, columns_panel, right_drawer, data, refs)
+
+
+def _render_tables(tables_panel, columns_panel, right_drawer, data, refs):
+    """Render pre-fetched table data (UI-only)."""
+    tables_panel.clear()
     with tables_panel:
         if not data:
             ui.label('No tables found.').classes('text-grey-7')
@@ -1292,20 +1330,25 @@ def _clear_columns(columns_panel, right_drawer=None):
 
 
 def _build_server_info_bar(bar_container):
-    """Render server disk info into the bar container (a ui.card)."""
-    bar_container.clear()
+    """Fetch disk info and render (sync, for Refresh button)."""
     service = state.service
     if not service or not state.active_connection_name:
+        bar_container.clear()
         bar_container.set_visibility(False)
         return
-
     try:
         disks = service.get_disk_info()
     except Exception as ex:
+        bar_container.clear()
         bar_container.set_visibility(False)
         ui.notify(f'Disk info error: {ex}', type='warning')
         return
+    _render_server_info_bar(bar_container, disks)
 
+
+def _render_server_info_bar(bar_container, disks):
+    """Render pre-fetched disk info into the bar container (UI-only)."""
+    bar_container.clear()
     if not disks:
         bar_container.set_visibility(False)
         return

@@ -1,3 +1,4 @@
+import time
 from datetime import date, datetime
 
 from clickhouse_driver import Client as NativeClient
@@ -111,9 +112,15 @@ class CHClient:
     def execute(self, query: str, params: dict | None = None) -> list[dict]:
         if not self.connected:
             raise RuntimeError("Not connected to ClickHouse")
+        logger.debug("Executing: %.200s | params=%s", query.strip(), params)
+        start = time.monotonic()
         if self._http_client:
-            return self._execute_http(query, params)
-        return self._execute_native(query, params)
+            rows = self._execute_http(query, params)
+        else:
+            rows = self._execute_native(query, params)
+        elapsed = time.monotonic() - start
+        logger.debug("Query OK: %.2fs, %d rows", elapsed, len(rows))
+        return rows
 
     def _execute_native(self, query: str, params: dict | None) -> list[dict]:
         result = self._native_client.execute(query, params or {}, with_column_types=True)
