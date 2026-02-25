@@ -79,7 +79,10 @@ class CHClient:
         if self._config.secure:
             kwargs["secure"] = True
             if self._config.ca_cert:
+                kwargs["verify"] = True
                 kwargs["ca_cert"] = self._config.ca_cert
+            else:
+                kwargs["verify"] = False
         self._http_client = clickhouse_connect.get_client(**kwargs)
         self._http_client.query("SELECT 1")
 
