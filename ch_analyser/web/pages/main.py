@@ -4,7 +4,7 @@ import html
 import json
 import re
 
-from nicegui import run, ui
+from nicegui import ui
 
 from ch_analyser.client import CHClient
 from ch_analyser.config import ConnectionConfig
@@ -228,8 +228,8 @@ def _build_connections_panel(conn_container, tables_panel, columns_panel, server
                                 )
 
 
-async def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
-                      text_logs_panel=None, main_tabs_loaded=None):
+def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
+                text_logs_panel=None, main_tabs_loaded=None):
     global _connecting_name
 
     # Don't reconnect if already connected to this one
@@ -248,13 +248,8 @@ async def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_i
         # Inject global CA cert
         cfg.ca_cert = state.conn_manager.ca_cert
 
-        # Run blocking connection in a thread to keep UI responsive
-        def _do_connect():
-            client = CHClient(cfg)
-            client.connect()
-            return client
-
-        client = await run.io_bound(_do_connect)
+        client = CHClient(cfg)
+        client.connect()
         state.client = client
         state.service = AnalysisService(client)
         state.active_connection_name = cfg.name
