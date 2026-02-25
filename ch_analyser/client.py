@@ -57,6 +57,8 @@ class CHClient:
             port=self._config.port,
             user=self._config.user,
             password=self._config.password,
+            connect_timeout=10,
+            send_receive_timeout=30,
         )
         if self._config.secure:
             kwargs["secure"] = True
@@ -71,6 +73,8 @@ class CHClient:
             port=self._config.port,
             username=self._config.user,
             password=self._config.password,
+            connect_timeout=10,
+            send_receive_timeout=30,
         )
         if self._config.secure:
             kwargs["secure"] = True
