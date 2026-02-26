@@ -1,18 +1,7 @@
 1. надо текущую структуру страницы изменить
 - Tables теперь это вклвдка, справа от нее надо добавить вкладки "Users", "Text Logs"; вкладки пока пустые.
 - боковая панель справа, должна быть связана только с таблицей на вкладке Tables, возможно получится как встроить эту панель во вкладку Tables
-2. Вкладка "Text Logs": давай добавим возможность анализа текстовых логов, 
-базовый запрос для получентия данных:
-```
-select thread_name,
-       argMax(message, event_time_microseconds) AS message_example,
-       max(event_time_microseconds) AS max_time,
-       count() AS cnt
-from system.text_log
-where event_time_microseconds > today() - interval 2 week
-and level <= 4
-group by thread_name, message_format_string
-order by max_time desc ;
+2. Вкладка "Text Logs": давай добавим возможность анализа текстовч
 ```
 примерный вывод таблицы такой:
 ```
