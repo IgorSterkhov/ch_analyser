@@ -184,7 +184,7 @@ def _copy_to_clipboard(text: str):
 
 
 def _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
-                             text_logs_panel=None, main_tabs_loaded=None):
+                             text_logs_panel=None, users_panel=None, main_tabs_loaded=None):
     """Render the list of connections into conn_container."""
     conn_container.clear()
     connections = state.conn_manager.list_connections()
@@ -203,7 +203,7 @@ def _build_connections_panel(conn_container, tables_panel, columns_panel, server
             bg = 'bg-blue-1' if is_active else ''
 
             card = ui.card().classes(f'w-full q-pa-xs q-mb-xs cursor-pointer {bg}').props('flat bordered')
-            card.on('click', lambda c=cfg: _on_connect(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded))
+            card.on('click', lambda c=cfg: _on_connect(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, main_tabs_loaded))
 
             with card:
                 with ui.row().classes('items-center w-full justify-between no-wrap'):
@@ -220,16 +220,16 @@ def _build_connections_panel(conn_container, tables_panel, columns_panel, server
                             with ui.menu():
                                 ui.menu_item(
                                     'Edit',
-                                    on_click=lambda c=cfg: _on_edit(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded),
+                                    on_click=lambda c=cfg: _on_edit(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, main_tabs_loaded),
                                 )
                                 ui.menu_item(
                                     'Delete',
-                                    on_click=lambda c=cfg: _on_delete(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded),
+                                    on_click=lambda c=cfg: _on_delete(c, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, main_tabs_loaded),
                                 )
 
 
 def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
-                text_logs_panel=None, main_tabs_loaded=None):
+                text_logs_panel=None, users_panel=None, main_tabs_loaded=None):
     """Sync entry point — shows 'Connecting...' and schedules async work."""
     global _connecting_name
 
@@ -239,15 +239,15 @@ def _on_connect(cfg, conn_container, tables_panel, columns_panel, server_info_ba
 
     _connecting_name = cfg.name
     state.active_connection_name = None
-    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
+    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, main_tabs_loaded)
 
     background_tasks.create(
-        _on_connect_async(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
+        _on_connect_async(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, main_tabs_loaded)
     )
 
 
 async def _on_connect_async(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
-                             text_logs_panel=None, main_tabs_loaded=None):
+                             text_logs_panel=None, users_panel=None, main_tabs_loaded=None):
     """Async connection flow — IO in background threads, UI in main thread."""
     global _connecting_name
     try:
@@ -269,7 +269,7 @@ async def _on_connect_async(cfg, conn_container, tables_panel, columns_panel, se
         state.active_connection_name = cfg.name
         _connecting_name = None
 
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, main_tabs_loaded)
 
         # Fetch data in background threads, render in main thread
         try:
@@ -301,24 +301,29 @@ async def _on_connect_async(cfg, conn_container, tables_panel, columns_panel, se
             text_logs_panel.clear()
             with text_logs_panel:
                 ui.label('Switch to Text Logs tab to load.').classes('text-grey-7')
+        # Clear users_panel on reconnect
+        if users_panel is not None:
+            users_panel.clear()
+            with users_panel:
+                ui.label('Switch to Users tab to load.').classes('text-grey-7')
 
         # Auto-hide connections drawer after successful connect
         drawer.hide()
     except Exception as ex:
         _connecting_name = None
         state.active_connection_name = None
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, main_tabs_loaded)
         _build_server_info_bar(server_info_bar, tables_panel, columns_panel, right_drawer)
         ui.notify(f'Connection failed: {ex}', type='negative')
 
 
 def _on_edit(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
-             text_logs_panel=None, main_tabs_loaded=None):
+             text_logs_panel=None, users_panel=None, main_tabs_loaded=None):
     def save(new_cfg, old_name=cfg.name):
         try:
             state.conn_manager.update_connection(old_name, new_cfg)
             ui.notify(f'Updated "{new_cfg.name}"', type='positive')
-            _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
+            _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, main_tabs_loaded)
         except Exception as ex:
             ui.notify(str(ex), type='negative')
 
@@ -326,7 +331,7 @@ def _on_edit(cfg, conn_container, tables_panel, columns_panel, server_info_bar, 
 
 
 def _on_delete(cfg, conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer,
-               text_logs_panel=None, main_tabs_loaded=None):
+               text_logs_panel=None, users_panel=None, main_tabs_loaded=None):
     try:
         state.conn_manager.delete_connection(cfg.name)
         if state.active_connection_name == cfg.name:
@@ -339,7 +344,7 @@ def _on_delete(cfg, conn_container, tables_panel, columns_panel, server_info_bar
             _clear_columns(columns_panel, right_drawer)
             _build_server_info_bar(server_info_bar, tables_panel, columns_panel, right_drawer)
         ui.notify(f'Deleted "{cfg.name}"', type='positive')
-        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, main_tabs_loaded)
+        _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, main_tabs_loaded)
     except Exception as ex:
         ui.notify(str(ex), type='negative')
 
@@ -450,6 +455,153 @@ def _load_text_logs(text_logs_panel):
             _load_text_log_detail(detail_panel, row['thread_name'], row.get('level'))
 
         tbl.on('thread-click', on_thread_click)
+
+
+def _load_users(users_panel):
+    """Fetch and render user statistics into the Users tab."""
+    users_panel.clear()
+    service = state.service
+    if not service:
+        with users_panel:
+            ui.label('Select a connection.').classes('text-grey-7')
+        return
+
+    try:
+        data = service.get_user_stats(log_days=state.query_log_days)
+    except Exception as ex:
+        with users_panel:
+            ui.label(f'Failed to load user stats: {ex}').classes('text-negative')
+        return
+
+    with users_panel:
+        if not data:
+            ui.label('No user statistics found.').classes('text-grey-7')
+            return
+
+        all_users = [r['user'] for r in data]
+        active_users = set(all_users)
+        user_buttons: dict[str, ui.button] = {}
+
+        all_rows = [
+            {
+                'user': r['user'],
+                'query_count': r['query_count'],
+                'last_query_time': r['last_query_time'],
+                'total_duration_sec': round(r['total_duration_sec'], 1),
+                'total_read': r['total_read'],
+                'total_read_rows': r['total_read_rows'],
+                'total_written': r['total_written'],
+                'total_written_rows': r['total_written_rows'],
+                'peak_memory': r['peak_memory'],
+                'selects': r['selects'],
+                'inserts': r['inserts'],
+                'other_queries': r['other_queries'],
+            }
+            for r in data
+        ]
+
+        columns = [
+            {'name': 'user', 'label': 'User', 'field': 'user', 'align': 'left', 'sortable': True},
+            {'name': 'query_count', 'label': 'Queries', 'field': 'query_count', 'align': 'right', 'sortable': True,
+             ':sort': '(a, b) => a - b'},
+            {'name': 'last_query_time', 'label': 'Last Query', 'field': 'last_query_time', 'align': 'center', 'sortable': True},
+            {'name': 'total_duration_sec', 'label': 'Total Time (s)', 'field': 'total_duration_sec', 'align': 'right', 'sortable': True,
+             ':sort': '(a, b) => a - b'},
+            {'name': 'total_read', 'label': 'Read', 'field': 'total_read', 'align': 'right', 'sortable': True,
+             ':sort': '(a, b, rowA, rowB) => rowA.total_read_rows - rowB.total_read_rows'},
+            {'name': 'total_written', 'label': 'Written', 'field': 'total_written', 'align': 'right', 'sortable': True,
+             ':sort': '(a, b, rowA, rowB) => rowA.total_written_rows - rowB.total_written_rows'},
+            {'name': 'peak_memory', 'label': 'Peak Mem', 'field': 'peak_memory', 'align': 'right'},
+            {'name': 'selects', 'label': 'SELECTs', 'field': 'selects', 'align': 'right', 'sortable': True,
+             ':sort': '(a, b) => a - b'},
+            {'name': 'inserts', 'label': 'INSERTs', 'field': 'inserts', 'align': 'right', 'sortable': True,
+             ':sort': '(a, b) => a - b'},
+            {'name': 'other_queries', 'label': 'Other', 'field': 'other_queries', 'align': 'right', 'sortable': True,
+             ':sort': '(a, b) => a - b'},
+        ]
+
+        def _update_button_styles():
+            for u, btn in user_buttons.items():
+                if u in active_users:
+                    btn.props('push color=primary text-color=white no-caps size=sm')
+                else:
+                    btn.props('push color=grey-4 text-color=grey-8 no-caps size=sm')
+                btn.update()
+
+        def _apply_filter():
+            if len(active_users) == len(all_users):
+                tbl.rows = all_rows
+            else:
+                tbl.rows = [r for r in all_rows if r['user'] in active_users]
+            tbl.update()
+
+        def _toggle_user(user):
+            if user in active_users:
+                if len(active_users) > 1:
+                    active_users.discard(user)
+                # don't allow deselecting the last one
+            else:
+                active_users.add(user)
+            _update_button_styles()
+            _apply_filter()
+
+        def _reset_users():
+            active_users.clear()
+            active_users.update(all_users)
+            _update_button_styles()
+            _apply_filter()
+
+        # User filter row
+        with ui.row().classes('w-full items-center gap-1 no-wrap').style('margin-bottom: 2px'):
+            ui.label('User:').classes('text-caption text-grey-7').style('line-height: 28px; white-space: nowrap')
+            ui.button(icon='delete_sweep', on_click=_reset_users).props(
+                'flat dense size=sm color=grey-7'
+            ).tooltip('Show all')
+            with ui.element('div').classes('flex flex-wrap gap-0'):
+                for u in all_users:
+                    btn = ui.button(u, on_click=lambda u=u: _toggle_user(u))
+                    btn.props('push color=primary text-color=white no-caps size=sm')
+                    user_buttons[u] = btn
+
+        # Refresh button
+        ui.button('Refresh', icon='refresh',
+                  on_click=lambda: _load_users(users_panel)).props('flat dense color=primary')
+
+        tbl = ui.table(
+            columns=columns,
+            rows=all_rows,
+            row_key='user',
+            pagination={'rowsPerPage': 20, 'sortBy': 'query_count', 'descending': True},
+        ).classes('w-full')
+
+        tbl.add_slot(
+            'pagination',
+            r'''
+            <span class="q-mr-sm">Rows per page:</span>
+            <q-select
+                v-model="props.pagination.rowsPerPage"
+                :options="[20, 50, 100, 0]"
+                :option-label="opt => opt === 0 ? 'All' : opt"
+                dense borderless
+                style="min-width: 80px"
+                @update:model-value="val => props.pagination.rowsPerPage = val"
+            />
+            <q-space />
+            <span v-if="props.pagination.rowsPerPage > 0" class="q-mx-sm">
+                {{ ((props.pagination.page - 1) * props.pagination.rowsPerPage) + 1 }}-{{ Math.min(props.pagination.page * props.pagination.rowsPerPage, props.pagination.rowsNumber) }}
+                of {{ props.pagination.rowsNumber }}
+            </span>
+            <span v-else class="q-mx-sm">{{ props.pagination.rowsNumber }} total</span>
+            <q-btn v-if="props.pagination.rowsPerPage > 0"
+                icon="chevron_left" dense flat
+                :disable="props.pagination.page <= 1"
+                @click="props.pagination.page--" />
+            <q-btn v-if="props.pagination.rowsPerPage > 0"
+                icon="chevron_right" dense flat
+                :disable="props.pagination.page >= Math.ceil(props.pagination.rowsNumber / props.pagination.rowsPerPage)"
+                @click="props.pagination.page++" />
+            ''',
+        )
 
 
 def _load_text_log_detail(detail_panel, thread_name: str, level: int | None = None):
@@ -1592,7 +1744,9 @@ def main_page():
                 with tables_panel:
                     ui.label('Select a connection.').classes('text-grey-7')
             with ui.tab_panel(users_main_tab).classes('q-pa-xs'):
-                ui.label('Users — coming soon.').classes('text-grey-7')
+                users_panel = ui.column().classes('w-full')
+                with users_panel:
+                    ui.label('Select a connection.').classes('text-grey-7')
             with ui.tab_panel(text_logs_main_tab).classes('q-pa-xs'):
                 text_logs_panel = ui.column().classes('w-full')
                 with text_logs_panel:
@@ -1616,6 +1770,10 @@ def main_page():
             ui.run_javascript(
                 "document.querySelector('.right-drawer-toggle-btn')?.style.setProperty('display','')"
             )
+        # Lazy-load Users
+        if tab == 'Users' and 'Users' not in _main_tabs_loaded and state.service:
+            _main_tabs_loaded.add('Users')
+            _load_users(users_panel)
         # Lazy-load Text Logs
         if tab == 'Text Logs' and 'Text Logs' not in _main_tabs_loaded and state.service:
             _main_tabs_loaded.add('Text Logs')
@@ -1637,7 +1795,7 @@ def main_page():
     main_content.on('click', _on_main_click)
 
     # Build connections list
-    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, _main_tabs_loaded)
+    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, _main_tabs_loaded)
 
     # Add button — outside conn_container, won't be cleared on rebuild
     if is_admin():
@@ -1646,7 +1804,7 @@ def main_page():
                 try:
                     state.conn_manager.add_connection(cfg)
                     ui.notify(f'Added "{cfg.name}"', type='positive')
-                    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, _main_tabs_loaded)
+                    _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, _main_tabs_loaded)
                 except Exception as ex:
                     ui.notify(str(ex), type='negative')
             connection_dialog(on_save=save)

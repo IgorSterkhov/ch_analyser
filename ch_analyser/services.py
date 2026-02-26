@@ -522,26 +522,31 @@ class AnalysisService:
                 if full_name not in node_types:
                     node_types[full_name] = 'table'
 
-        # Build undirected adjacency for BFS
-        graph: dict[str, set[str]] = {}
+        # Build directed adjacency for BFS
+        forward: dict[str, set[str]] = {}
+        backward: dict[str, set[str]] = {}
         for src, dst in edges:
-            graph.setdefault(src, set()).add(dst)
-            graph.setdefault(dst, set()).add(src)
+            forward.setdefault(src, set()).add(dst)
+            backward.setdefault(dst, set()).add(src)
 
-        if full_table_name not in graph:
+        if full_table_name not in forward and full_table_name not in backward:
             return {'nodes': [], 'edges': []}
 
-        # BFS to find connected component
-        visited: set[str] = set()
-        queue = [full_table_name]
-        while queue:
-            node = queue.pop(0)
-            if node in visited:
-                continue
-            visited.add(node)
-            for neighbor in graph.get(node, []):
-                if neighbor not in visited:
-                    queue.append(neighbor)
+        def _bfs(graph: dict[str, set[str]], start: str) -> set[str]:
+            visited: set[str] = set()
+            queue = [start]
+            while queue:
+                node = queue.pop(0)
+                if node in visited:
+                    continue
+                visited.add(node)
+                for neighbor in graph.get(node, []):
+                    if neighbor not in visited:
+                        queue.append(neighbor)
+            return visited
+
+        # Forward BFS (downstream) + Backward BFS (upstream)
+        visited = _bfs(forward, full_table_name) | _bfs(backward, full_table_name)
 
         relevant_edges = [{'from': s, 'to': d} for s, d in edges if s in visited and d in visited]
         relevant_nodes = [
@@ -611,6 +616,36 @@ class AnalysisService:
             return rows
         except Exception as e:
             logger.error("Failed to get text_log summary: %s", e)
+            return []
+
+    def get_user_stats(self, log_days: int = QUERY_LOG_DAYS_DEFAULT) -> list[dict]:
+        """Get per-user query statistics from query_log."""
+        try:
+            rows = self._client.execute(
+                "SELECT "
+                "  user, "
+                "  count() AS query_count, "
+                "  max(event_time) AS last_query_time, "
+                "  sum(query_duration_ms) / 1000 AS total_duration_sec, "
+                "  formatReadableSize(sum(read_bytes)) AS total_read, "
+                "  sum(read_rows) AS total_read_rows, "
+                "  formatReadableSize(sum(written_bytes)) AS total_written, "
+                "  sum(written_rows) AS total_written_rows, "
+                "  formatReadableSize(max(memory_usage)) AS peak_memory, "
+                "  countIf(query_kind = 'Select') AS selects, "
+                "  countIf(query_kind = 'Insert') AS inserts, "
+                "  countIf(query_kind NOT IN ('Select', 'Insert')) AS other_queries "
+                "FROM system.query_log "
+                "WHERE type = 'QueryFinish' "
+                f"AND event_time > now() - INTERVAL {int(log_days)} DAY "
+                "GROUP BY user "
+                "ORDER BY query_count DESC"
+            )
+            for r in rows:
+                r['last_query_time'] = str(r['last_query_time'])
+            return rows
+        except Exception as e:
+            logger.error("Failed to get user stats: %s", e)
             return []
 
     def get_text_log_detail(self, thread_name: str, level: int | None = None) -> list[dict]:
