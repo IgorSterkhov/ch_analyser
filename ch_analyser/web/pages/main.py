@@ -1718,10 +1718,13 @@ def main_page():
         .density-compact .q-table td,
         .density-compact .q-table th {
             padding: 2px 8px !important;
+            height: auto !important;
             font-size: 0.8rem;
+            line-height: 1.2;
         }
         .density-compact .q-table .q-btn--dense {
             padding: 0 4px !important;
+            min-height: 0 !important;
         }
         .density-comfortable .q-table td,
         .density-comfortable .q-table th {
