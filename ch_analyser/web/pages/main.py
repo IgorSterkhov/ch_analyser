@@ -63,7 +63,7 @@ window.initDrawerResize = function(handleEl) {
             if (drawerEl) drawerEl.style.setProperty('width', newWidth + 'px', 'important');
             var toggleBtn = document.querySelector('.right-drawer-toggle-btn');
             if (toggleBtn && !toggleBtn.classList.contains('drawer-closed')) {
-                toggleBtn.style.right = newWidth + 'px';
+                toggleBtn.style.setProperty('right', newWidth + 'px', 'important');
             }
         }
         function onMouseUp() {
@@ -273,8 +273,10 @@ async def _on_connect_async(cfg, conn_container, tables_panel, columns_panel, se
         _build_connections_panel(conn_container, tables_panel, columns_panel, server_info_bar, drawer, right_drawer, text_logs_panel, users_panel, main_tabs_loaded)
 
         # Fetch data in background threads, render in main thread
+        total_disk_bytes = 0
         try:
             disks = await run.io_bound(lambda: state.service.get_disk_info())
+            total_disk_bytes = sum(d['used_bytes'] for d in disks) if disks else 0
             _render_server_info_bar(server_info_bar, disks, tables_panel, columns_panel, right_drawer)
         except Exception as ex:
             server_info_bar.set_visibility(False)
@@ -286,7 +288,7 @@ async def _on_connect_async(cfg, conn_container, tables_panel, columns_panel, se
                 refs_data = await run.io_bound(lambda: state.service.get_table_references())
             except Exception:
                 refs_data = {}
-            _render_tables(tables_panel, columns_panel, right_drawer, tables_data, refs_data)
+            _render_tables(tables_panel, columns_panel, right_drawer, tables_data, refs_data, total_disk_bytes)
         except Exception as ex:
             tables_panel.clear()
             with tables_panel:
@@ -774,10 +776,16 @@ def _load_tables(tables_panel, columns_panel, right_drawer):
     except Exception:
         refs = {}
 
-    _render_tables(tables_panel, columns_panel, right_drawer, data, refs)
+    try:
+        disks = service.get_disk_info()
+        total_disk_bytes = sum(d['used_bytes'] for d in disks) if disks else 0
+    except Exception:
+        total_disk_bytes = 0
+
+    _render_tables(tables_panel, columns_panel, right_drawer, data, refs, total_disk_bytes)
 
 
-def _render_tables(tables_panel, columns_panel, right_drawer, data, refs):
+def _render_tables(tables_panel, columns_panel, right_drawer, data, refs, total_disk_bytes=0):
     """Render pre-fetched table data (UI-only)."""
     tables_panel.clear()
     with tables_panel:
@@ -788,6 +796,8 @@ def _render_tables(tables_panel, columns_panel, right_drawer, data, refs):
         columns = [
             {'name': 'name', 'label': 'Table', 'field': 'name', 'align': 'left', 'sortable': True},
             {'name': 'size', 'label': 'Size', 'field': 'size', 'align': 'right', 'sortable': True,
+             ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
+            {'name': 'size_pct', 'label': '%', 'field': 'size_pct', 'align': 'right', 'sortable': True,
              ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
             {'name': 'replicated', 'label': 'R', 'field': 'replicated', 'align': 'center'},
             {'name': 'refs', 'label': 'Refs', 'field': 'refs_cnt', 'align': 'center', 'sortable': True},
@@ -801,10 +811,12 @@ def _render_tables(tables_panel, columns_panel, right_drawer, data, refs):
             all_refs = refs.get(t['name'], [])
             normal_refs = [name for name, engine in all_refs if engine != 'Distributed']
             dist_refs = [name for name, engine in all_refs if engine == 'Distributed']
+            pct = (t['size_bytes'] / total_disk_bytes * 100) if total_disk_bytes > 0 else 0
             rows.append({
                 'name': t['name'],
                 'size': t['size'],
                 'size_bytes': t['size_bytes'],
+                'size_pct': f'{pct:.1f}%' if pct >= 0.05 else '<0.1%',
                 'replicated': t.get('replicated', False),
                 'refs_cnt': len(normal_refs),
                 'refs_list': normal_refs,
@@ -815,12 +827,17 @@ def _render_tables(tables_panel, columns_panel, right_drawer, data, refs):
                 'last_insert': t['last_insert'],
             })
 
+        filter_input = ui.input(placeholder='Filter by table name...').props(
+            'dense clearable'
+        ).classes('q-mb-sm').style('max-width: 400px')
+
         tbl = ui.table(
             columns=columns,
             rows=rows,
             row_key='name',
             pagination={'rowsPerPage': 20, 'sortBy': 'size', 'descending': True},
         ).classes('w-full')
+        tbl.bind_filter_from(filter_input, 'value')
 
         tbl.add_slot(
             'body',
@@ -833,6 +850,7 @@ def _render_tables(tables_panel, columns_panel, right_drawer, data, refs):
                    ">
                 <q-td key="name" :props="props">{{ props.row.name }}</q-td>
                 <q-td key="size" :props="props">{{ props.row.size }}</q-td>
+                <q-td key="size_pct" :props="props">{{ props.row.size_pct }}</q-td>
                 <q-td key="replicated" :props="props">
                     <q-icon v-if="props.row.replicated" name="sync" color="primary" size="xs" />
                 </q-td>
@@ -972,9 +990,15 @@ def _load_columns(columns_panel, full_table_name: str, right_drawer):
 
         loaded_tabs = set()
 
+        try:
+            disks = service.get_disk_info()
+            total_disk_bytes = sum(d['used_bytes'] for d in disks) if disks else 0
+        except Exception:
+            total_disk_bytes = 0
+
         with ui.tab_panels(tabs, value=columns_tab).classes('w-full q-pt-none') as tab_panels:
             with ui.tab_panel(columns_tab).classes('q-pa-xs'):
-                _render_columns_tab(service, full_table_name)
+                _render_columns_tab(service, full_table_name, total_disk_bytes)
                 loaded_tabs.add('Columns')
             with ui.tab_panel(history_tab).classes('q-pa-xs') as history_panel:
                 pass
@@ -996,7 +1020,7 @@ def _load_columns(columns_panel, full_table_name: str, right_drawer):
         tabs.on_value_change(_on_tab_change)
 
 
-def _render_columns_tab(service, full_table_name: str):
+def _render_columns_tab(service, full_table_name: str, total_disk_bytes: int = 0):
     """Render the columns table inside a tab panel."""
     try:
         data = service.get_columns(full_table_name)
@@ -1008,11 +1032,13 @@ def _render_columns_tab(service, full_table_name: str):
         ui.label('No columns found.').classes('text-grey-7')
         return
 
-    # Get column-level references
+    # Get column-level references (now returns engine info)
     try:
         col_refs = service.get_column_references(full_table_name)
     except Exception:
         col_refs = {}
+
+    table_total_bytes = sum(c.get('size_bytes', 0) for c in data)
 
     columns = [
         {'name': 'name', 'label': 'Column', 'field': 'name', 'align': 'left', 'sortable': True},
@@ -1020,20 +1046,33 @@ def _render_columns_tab(service, full_table_name: str):
         {'name': 'codec', 'label': 'Codec', 'field': 'codec', 'align': 'left'},
         {'name': 'size', 'label': 'Size', 'field': 'size', 'align': 'right', 'sortable': True,
          ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
+        {'name': 'size_pct', 'label': '%', 'field': 'size_pct', 'align': 'right', 'sortable': True,
+         ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
         {'name': 'refs', 'label': 'Refs', 'field': 'refs_cnt', 'align': 'center', 'sortable': True},
+        {'name': 'dist', 'label': '_d', 'field': 'dist_cnt', 'align': 'center', 'sortable': True},
     ]
-    rows = [
-        {
+    rows = []
+    for c in data:
+        all_refs = col_refs.get(c['name'], [])
+        normal_refs = [name for name, engine in all_refs if engine != 'Distributed']
+        dist_refs = [name for name, engine in all_refs if engine == 'Distributed']
+        col_bytes = c.get('size_bytes', 0)
+        tbl_pct = (col_bytes / table_total_bytes * 100) if table_total_bytes > 0 else 0
+        srv_pct = (col_bytes / total_disk_bytes * 100) if total_disk_bytes > 0 else 0
+        tbl_pct_str = f'{tbl_pct:.1f}' if tbl_pct >= 0.05 else '<0.1'
+        srv_pct_str = f'{srv_pct:.1f}' if srv_pct >= 0.05 else '<0.1'
+        rows.append({
             'name': c['name'],
             'type': c['type'],
             'codec': c.get('codec', ''),
             'size': c.get('size', '0 B'),
-            'size_bytes': c.get('size_bytes', 0),
-            'refs_cnt': len(col_refs.get(c['name'], [])),
-            'refs_list': col_refs.get(c['name'], []),
-        }
-        for c in data
-    ]
+            'size_bytes': col_bytes,
+            'size_pct': f'{tbl_pct_str}% / {srv_pct_str}%',
+            'refs_cnt': len(normal_refs),
+            'refs_list': normal_refs,
+            'dist_cnt': len(dist_refs),
+            'dist_list': dist_refs,
+        })
 
     tbl = ui.table(
         columns=columns,
@@ -1050,10 +1089,17 @@ def _render_columns_tab(service, full_table_name: str):
             <q-td key="type" :props="props">{{ props.row.type }}</q-td>
             <q-td key="codec" :props="props">{{ props.row.codec }}</q-td>
             <q-td key="size" :props="props">{{ props.row.size }}</q-td>
+            <q-td key="size_pct" :props="props">{{ props.row.size_pct }}</q-td>
             <q-td key="refs" :props="props">
                 <q-btn v-if="props.row.refs_cnt > 0" flat dense size="sm"
                        :label="String(props.row.refs_cnt)" color="primary"
                        @click.stop="$parent.$emit('show-refs', props.row)" />
+                <span v-else class="text-grey-5">0</span>
+            </q-td>
+            <q-td key="dist" :props="props">
+                <q-btn v-if="props.row.dist_cnt > 0" flat dense size="sm"
+                       :label="String(props.row.dist_cnt)" color="primary"
+                       @click.stop="$parent.$emit('show-dist-refs', props.row)" />
                 <span v-else class="text-grey-5">0</span>
             </q-td>
         </q-tr>
@@ -1065,6 +1111,12 @@ def _render_columns_tab(service, full_table_name: str):
         _show_refs_dialog(row['name'], row.get('refs_list', []))
 
     tbl.on('show-refs', on_show_col_refs)
+
+    def on_show_col_dist_refs(e):
+        row = e.args
+        _show_refs_dialog(row['name'], row.get('dist_list', []))
+
+    tbl.on('show-dist-refs', on_show_col_dist_refs)
 
 
 def _render_query_history_tab(service, full_table_name: str):
@@ -1669,7 +1721,7 @@ def main_page():
         }
         .right-drawer-toggle-btn {
             position: fixed !important;
-            right: 0 !important;
+            right: 0;
             top: 50% !important;
             transform: translateY(-50%) !important;
             width: 24px !important;

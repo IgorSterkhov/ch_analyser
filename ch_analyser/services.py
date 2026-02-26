@@ -304,6 +304,25 @@ class AnalysisService:
         parts.append(f"LIMIT {limit}")
         return ' '.join(parts)
 
+    @staticmethod
+    def _parse_distributed_target(ddl: str, entity_db: str) -> str | None:
+        """Extract the target table from a Distributed engine clause.
+
+        Distributed(cluster, database, table [, sharding_key [, policy]])
+        Returns 'database.table' or None if parsing fails.
+        """
+        m = re.search(
+            r"Distributed\s*\(\s*'[^']*'\s*,\s*'?([^',\s)]+)'?\s*,\s*'?([^',\s)]+)'?",
+            ddl, re.IGNORECASE,
+        )
+        if m:
+            db = m.group(1).strip("'\"` ")
+            tbl = m.group(2).strip("'\"` ")
+            if not db:
+                db = entity_db
+            return f"{db}.{tbl}"
+        return None
+
     def get_table_references(self) -> dict[str, list[tuple[str, str]]]:
         """For each table, find other entities whose DDL references it.
 
@@ -339,6 +358,16 @@ class AnalysisService:
             for entity_name, (ddl, engine) in entities.items():
                 if entity_name == target:
                     continue
+                entity_db = entity_name.split('.', 1)[0]
+
+                if engine == 'Distributed':
+                    # Only match if the Distributed engine clause targets this table
+                    dist_target = self._parse_distributed_target(ddl, entity_db)
+                    if dist_target == target:
+                        refs.append((entity_name, engine))
+                    continue
+
+                # Non-Distributed: existing regex match logic
                 matched = False
                 # Full name match (any database)
                 if full_pattern.search(ddl):
@@ -359,12 +388,15 @@ class AnalysisService:
 
         return references
 
-    def get_column_references(self, full_table_name: str) -> dict[str, list[str]]:
-        """For each column of a table, find entities whose DDL references the column name."""
+    def get_column_references(self, full_table_name: str) -> dict[str, list[tuple[str, str]]]:
+        """For each column of a table, find entities whose DDL references the column name.
+
+        Returns dict mapping column name to list of (entity_name, engine) tuples.
+        """
         excluded = list(EXCLUDED_DATABASES)
         try:
             rows = self._client.execute(
-                "SELECT database, name, create_table_query "
+                "SELECT database, name, engine, create_table_query "
                 "FROM system.tables "
                 "WHERE database NOT IN %(excluded)s",
                 {"excluded": excluded},
@@ -381,12 +413,22 @@ class AnalysisService:
         # Pattern to detect our table as DESTINATION (TO table in MV DDL)
         to_full_pattern = re.compile(r'\bTO\s+' + re.escape(full_table_name) + r'\b', re.IGNORECASE)
         to_short_pattern = re.compile(r'\bTO\s+' + re.escape(short) + r'\b(?!\.)', re.IGNORECASE)
-        referring_entities: dict[str, str] = {}
+        referring_entities: dict[str, tuple[str, str]] = {}
         for r in rows:
             entity = f"{r['database']}.{r['name']}"
             ddl = r['create_table_query'] or ''
+            engine = r.get('engine', '')
             if entity == full_table_name:
                 continue
+
+            if engine == 'Distributed':
+                # Only match if Distributed engine clause targets our table
+                entity_db = entity.split('.', 1)[0]
+                dist_target = self._parse_distributed_target(ddl, entity_db)
+                if dist_target == full_table_name:
+                    referring_entities[entity] = (ddl, engine)
+                continue
+
             matched = False
             if full_pattern.search(ddl):
                 matched = True
@@ -399,7 +441,7 @@ class AnalysisService:
                 continue
             if entity.startswith(db + '.') and to_short_pattern.search(ddl):
                 continue
-            referring_entities[entity] = ddl
+            referring_entities[entity] = (ddl, engine)
 
         # Get column names of our table
         try:
@@ -410,11 +452,11 @@ class AnalysisService:
         except Exception:
             return {}
 
-        result: dict[str, list[str]] = {}
+        result: dict[str, list[tuple[str, str]]] = {}
         for col_row in cols:
             col_name = col_row['name']
             col_pattern = re.compile(r'\b' + re.escape(col_name) + r'\b')
-            refs = [entity for entity, ddl in referring_entities.items() if col_pattern.search(ddl)]
+            refs = [(entity, engine) for entity, (ddl, engine) in referring_entities.items() if col_pattern.search(ddl)]
             if refs:
                 result[col_name] = sorted(refs)
 
