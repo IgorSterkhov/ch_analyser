@@ -4,7 +4,7 @@ import html
 import json
 import re
 
-from nicegui import background_tasks, run, ui
+from nicegui import app, background_tasks, run, ui
 
 from ch_analyser.client import CHClient
 from ch_analyser.config import ConnectionConfig
@@ -14,6 +14,7 @@ import ch_analyser.web.state as state
 from ch_analyser.web.auth_helpers import require_auth, is_admin
 from ch_analyser.web.components.header import header
 from ch_analyser.web.components.connection_dialog import connection_dialog
+from ch_analyser.web.components.settings_dialog import apply_saved_density
 
 # Name of the connection currently in "connecting" state (for UI feedback)
 _connecting_name: str | None = None
@@ -396,10 +397,10 @@ def _load_text_logs(text_logs_panel):
                 columns = [
                     {'name': 'thread_name', 'label': 'Thread', 'field': 'thread_name', 'align': 'left', 'sortable': True},
                     {'name': 'level_name', 'label': 'Level', 'field': 'level_name', 'align': 'center', 'sortable': True},
-                    {'name': 'message_example', 'label': 'Message Example', 'field': 'message_example', 'align': 'left'},
                     {'name': 'max_time', 'label': 'Last Seen', 'field': 'max_time', 'align': 'center', 'sortable': True},
                     {'name': 'cnt', 'label': 'Count', 'field': 'cnt', 'align': 'right', 'sortable': True,
                      ':sort': '(a, b) => a - b'},
+                    {'name': 'message_example', 'label': 'Message Example', 'field': 'message_example', 'align': 'left'},
                 ]
                 rows = []
                 for i, r in enumerate(data):
@@ -436,11 +437,11 @@ def _load_text_logs(text_logs_panel):
                                 'warning'
                             " :label="props.row.level_name" />
                         </q-td>
+                        <q-td key="max_time" :props="props">{{ props.row.max_time }}</q-td>
+                        <q-td key="cnt" :props="props">{{ props.row.cnt.toLocaleString() }}</q-td>
                         <q-td key="message_example" :props="props">
                             <span class="text-caption">{{ props.row.message_example }}</span>
                         </q-td>
-                        <q-td key="max_time" :props="props">{{ props.row.max_time }}</q-td>
-                        <q-td key="cnt" :props="props">{{ props.row.cnt.toLocaleString() }}</q-td>
                     </q-tr>
                 ''')
 
@@ -627,8 +628,12 @@ def _load_text_log_detail(detail_panel, thread_name: str, level: int | None = No
         'logger_name': 'Logger',
         'message': 'Message',
     }
-    # All visible by default except thread_name
-    visible_cols = {c: (c != 'thread_name') for c in all_columns}
+    # Restore saved visible columns from session, or default (all except thread_name)
+    saved_visible = app.storage.tab.get('text_log_detail_visible_cols')
+    if saved_visible and isinstance(saved_visible, dict):
+        visible_cols = {c: saved_visible.get(c, c != 'thread_name') for c in all_columns}
+    else:
+        visible_cols = {c: (c != 'thread_name') for c in all_columns}
 
     with detail_panel:
         ui.label(f'Thread: {thread_name}').classes('text-subtitle1 text-weight-bold q-mb-xs')
@@ -665,6 +670,63 @@ def _load_text_log_detail(detail_panel, thread_name: str, level: int | None = No
             pagination={'rowsPerPage': 50, 'sortBy': 'event_time_microseconds', 'descending': True},
         ).classes('w-full')
 
+        # Custom body slot with eye icon for message column
+        detail_tbl.add_slot('body', r'''
+            <q-tr :props="props">
+                <q-td key="event_time_microseconds" :props="props">
+                    {{ props.row.event_time_microseconds }}
+                </q-td>
+                <q-td key="thread_name" :props="props">
+                    {{ props.row.thread_name }}
+                </q-td>
+                <q-td key="level_name" :props="props">
+                    <q-badge :color="
+                        props.row.level_name === 'Fatal' ? 'black' :
+                        props.row.level_name === 'Critical' ? 'deep-purple' :
+                        props.row.level_name === 'Error' ? 'negative' :
+                        props.row.level_name === 'Warning' ? 'warning' :
+                        'grey'
+                    " :label="props.row.level_name" />
+                </q-td>
+                <q-td key="query_id" :props="props">
+                    {{ props.row.query_id }}
+                </q-td>
+                <q-td key="logger_name" :props="props">
+                    {{ props.row.logger_name }}
+                </q-td>
+                <q-td key="message" :props="props" style="max-width: 600px">
+                    <div class="row items-center no-wrap">
+                        <q-btn flat dense round size="sm" icon="visibility" color="primary"
+                               @click.stop="$parent.$emit('show-message', props.row)"
+                               class="q-mr-xs" />
+                        <span class="ellipsis" style="max-width: 550px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            {{ props.row.message }}
+                        </span>
+                    </div>
+                </q-td>
+            </q-tr>
+        ''')
+
+        def on_show_message(e):
+            row = e.args
+            msg = row.get('message', '')
+            escaped_msg = html.escape(msg)
+            with ui.dialog() as msg_dlg, ui.card().classes('q-pa-md').style('min-width: 500px; max-width: 80vw'):
+                ui.label('Message').classes('text-h6 q-mb-sm')
+                ui.html(
+                    f'<pre style="white-space: pre-wrap; word-break: break-word; '
+                    f'max-height: 60vh; overflow: auto; font-size: 0.85rem; '
+                    f'background: #f5f5f5; padding: 12px; border-radius: 4px;">'
+                    f'{escaped_msg}</pre>'
+                )
+                with ui.row().classes('w-full justify-end q-mt-md gap-2'):
+                    copy_js = f'() => window.copyToClipboard({json.dumps(msg)})'
+                    ui.button('Copy', icon='content_copy').props('flat').on('click', js_handler=copy_js)
+                    ui.button('Close', on_click=msg_dlg.close).props('flat')
+            msg_dlg.open()
+
+        detail_tbl.on('show-message', on_show_message)
+
         # Set initial visible columns
         initial_visible = [c for c in all_columns if visible_cols[c]]
         detail_tbl._props['visible-columns'] = initial_visible
@@ -681,6 +743,8 @@ def _load_text_log_detail(detail_panel, thread_name: str, level: int | None = No
             btn.update()
             detail_tbl._props['visible-columns'] = [c for c in all_columns if visible_cols[c]]
             detail_tbl.update()
+            # Persist visible columns to session storage
+            app.storage.tab['text_log_detail_visible_cols'] = dict(visible_cols)
 
         for col in all_columns:
             toggle_buttons[col].on_click(lambda c=col: _toggle_col(c))
@@ -1650,6 +1714,19 @@ def main_page():
         .drawer-resize-handle:hover {
             background: rgba(25, 118, 210, 0.3);
         }
+        /* Table density settings */
+        .density-compact .q-table td,
+        .density-compact .q-table th {
+            padding: 2px 8px !important;
+            font-size: 0.8rem;
+        }
+        .density-compact .q-table .q-btn--dense {
+            padding: 0 4px !important;
+        }
+        .density-comfortable .q-table td,
+        .density-comfortable .q-table th {
+            padding: 12px 16px !important;
+        }
     ''')
 
     # Collapsible connections drawer (left)
@@ -1711,6 +1788,9 @@ def main_page():
     right_drawer.on_value_change(_on_right_drawer_change)
 
     header(drawer=drawer)
+
+    # Apply user's saved table density
+    apply_saved_density()
 
     # Left drawer toggle button — fixed-position, always visible
     ui.button(icon='chevron_left', on_click=lambda: drawer.set_value(not drawer.value)).props(
