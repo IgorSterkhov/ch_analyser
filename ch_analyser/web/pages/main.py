@@ -446,6 +446,9 @@ def _load_text_logs(text_logs_panel):
                 ''')
 
             with splitter.after:
+                with ui.row().classes('w-full justify-between items-center q-mb-xs'):
+                    ui.label('Details').classes('text-subtitle2')
+                    ui.button(icon='close', on_click=lambda: splitter.set_value(100)).props('flat dense size=sm')
                 detail_panel = ui.column().classes('w-full q-pa-sm')
                 with detail_panel:
                     ui.label('Click a thread name to see details.').classes('text-grey-7')
