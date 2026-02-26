@@ -304,12 +304,15 @@ class AnalysisService:
         parts.append(f"LIMIT {limit}")
         return ' '.join(parts)
 
-    def get_table_references(self) -> dict[str, list[str]]:
-        """For each table, find other entities whose DDL references it."""
+    def get_table_references(self) -> dict[str, list[tuple[str, str]]]:
+        """For each table, find other entities whose DDL references it.
+
+        Returns dict mapping table name to list of (entity_name, engine) tuples.
+        """
         excluded = list(EXCLUDED_DATABASES)
         try:
             rows = self._client.execute(
-                "SELECT database, name, create_table_query "
+                "SELECT database, name, engine, create_table_query "
                 "FROM system.tables "
                 "WHERE database NOT IN %(excluded)s",
                 {"excluded": excluded},
@@ -318,12 +321,12 @@ class AnalysisService:
             logger.warning("Failed to get DDL for references: %s", e)
             return {}
 
-        entities: dict[str, str] = {}
+        entities: dict[str, tuple[str, str]] = {}
         for r in rows:
             full_name = f"{r['database']}.{r['name']}"
-            entities[full_name] = r['create_table_query'] or ''
+            entities[full_name] = (r['create_table_query'] or '', r.get('engine', ''))
 
-        references: dict[str, list[str]] = {}
+        references: dict[str, list[tuple[str, str]]] = {}
         for target in entities:
             db, short = target.split('.', 1)
             # Regex with word boundaries to avoid substring false positives
@@ -333,7 +336,7 @@ class AnalysisService:
             to_full_pattern = re.compile(r'\bTO\s+' + re.escape(target) + r'\b', re.IGNORECASE)
             to_short_pattern = re.compile(r'\bTO\s+' + re.escape(short) + r'\b(?!\.)', re.IGNORECASE)
             refs = []
-            for entity_name, ddl in entities.items():
+            for entity_name, (ddl, engine) in entities.items():
                 if entity_name == target:
                     continue
                 matched = False
@@ -350,7 +353,7 @@ class AnalysisService:
                     continue
                 if entity_name.startswith(db + '.') and to_short_pattern.search(ddl):
                     continue
-                refs.append(entity_name)
+                refs.append((entity_name, engine))
             if refs:
                 references[target] = sorted(refs)
 

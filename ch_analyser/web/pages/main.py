@@ -791,24 +791,29 @@ def _render_tables(tables_panel, columns_panel, right_drawer, data, refs):
              ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
             {'name': 'replicated', 'label': 'R', 'field': 'replicated', 'align': 'center'},
             {'name': 'refs', 'label': 'Refs', 'field': 'refs_cnt', 'align': 'center', 'sortable': True},
+            {'name': 'dist', 'label': '_d', 'field': 'dist_cnt', 'align': 'center', 'sortable': True},
             {'name': 'last_select', 'label': 'Last SELECT', 'field': 'last_select', 'align': 'center'},
             {'name': 'last_insert', 'label': 'Last INSERT', 'field': 'last_insert', 'align': 'center'},
             {'name': 'ttl', 'label': 'TTL', 'field': 'ttl', 'align': 'left'},
         ]
-        rows = [
-            {
+        rows = []
+        for t in data:
+            all_refs = refs.get(t['name'], [])
+            normal_refs = [name for name, engine in all_refs if engine != 'Distributed']
+            dist_refs = [name for name, engine in all_refs if engine == 'Distributed']
+            rows.append({
                 'name': t['name'],
                 'size': t['size'],
                 'size_bytes': t['size_bytes'],
                 'replicated': t.get('replicated', False),
-                'refs_cnt': len(refs.get(t['name'], [])),
-                'refs_list': refs.get(t['name'], []),
+                'refs_cnt': len(normal_refs),
+                'refs_list': normal_refs,
+                'dist_cnt': len(dist_refs),
+                'dist_list': dist_refs,
                 'ttl': t.get('ttl', ''),
                 'last_select': t['last_select'],
                 'last_insert': t['last_insert'],
-            }
-            for t in data
-        ]
+            })
 
         tbl = ui.table(
             columns=columns,
@@ -835,6 +840,12 @@ def _render_tables(tables_panel, columns_panel, right_drawer, data, refs):
                     <q-btn v-if="props.row.refs_cnt > 0" flat dense size="sm"
                            :label="String(props.row.refs_cnt)" color="primary"
                            @click.stop="$parent.$emit('show-refs', props.row)" />
+                    <span v-else class="text-grey-5">0</span>
+                </q-td>
+                <q-td key="dist" :props="props">
+                    <q-btn v-if="props.row.dist_cnt > 0" flat dense size="sm"
+                           :label="String(props.row.dist_cnt)" color="primary"
+                           @click.stop="$parent.$emit('show-dist-refs', props.row)" />
                     <span v-else class="text-grey-5">0</span>
                 </q-td>
                 <q-td key="last_select" :props="props">{{ props.row.last_select }}</q-td>
@@ -896,6 +907,12 @@ def _render_tables(tables_panel, columns_panel, right_drawer, data, refs):
             _show_refs_dialog(row['name'], row.get('refs_list', []))
 
         tbl.on('show-refs', on_show_refs)
+
+        def on_show_dist_refs(e):
+            row = e.args
+            _show_refs_dialog(row['name'], row.get('dist_list', []))
+
+        tbl.on('show-dist-refs', on_show_dist_refs)
 
         # --- Show generated SQL button ---
         def _show_tables_sql():
