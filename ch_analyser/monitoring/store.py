@@ -127,10 +127,10 @@ class MonitoringStore:
                        sum(total_bytes) AS total_bytes,
                        sum(used_bytes) AS used_bytes
                 FROM server_disk_snapshots
-                WHERE ts >= now() - INTERVAL ? DAY
+                WHERE ts >= now() - INTERVAL '{int(days)} days'
                 GROUP BY server_name, ts
                 ORDER BY server_name, ts
-            """, [days]).fetchall()
+            """).fetchall()
             cols = ["server_name", "ts", "total_bytes", "used_bytes"]
             return [dict(zip(cols, r)) for r in rows]
 
@@ -177,9 +177,9 @@ class MonitoringStore:
                        size_bytes
                 FROM table_disk_snapshots
                 WHERE server_name = ?
-                  AND ts >= now() - INTERVAL ? DAY
+                  AND ts >= now() - INTERVAL '{int(days)} days'
                 ORDER BY ts, full_name
-            """, [server_name, days]).fetchall()
+            """, [server_name]).fetchall()
 
             # Group into top-N + other
             result: list[dict] = []
@@ -203,7 +203,6 @@ class MonitoringStore:
         with self._lock:
             for table in ("server_disk_snapshots", "table_disk_snapshots"):
                 self._conn.execute(
-                    f"DELETE FROM {table} WHERE ts < now() - INTERVAL ? DAY",
-                    [retention_days],
+                    f"DELETE FROM {table} WHERE ts < now() - INTERVAL '{int(retention_days)} days'",
                 )
         logger.info("Cleanup done (retention=%d days)", retention_days)
