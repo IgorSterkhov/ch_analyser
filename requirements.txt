@@ -3,4 +3,5 @@ clickhouse-driver>=0.2.6
 clickhouse-connect>=0.7
 python-dotenv>=1.0
 sqlparse>=0.4
+duckdb>=0.9
 pytest>=7.0

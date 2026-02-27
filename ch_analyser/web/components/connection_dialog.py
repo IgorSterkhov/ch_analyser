@@ -56,6 +56,13 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None):
             value=existing.secure if existing else False,
         )
 
+        # CA Certificate path — visible only when SSL is on
+        ca_cert_input = ui.input(
+            'CA Certificate Path',
+            value=existing.ca_cert if existing else '',
+        ).classes('w-full')
+        ca_cert_input.set_visibility(existing.secure if existing else False)
+
         def _update_port():
             key = (protocol_select.value, ssl_switch.value)
             port_input.value = PORT_DEFAULTS.get(key, 9000)
@@ -63,8 +70,9 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None):
         def _on_protocol_change(_):
             _update_port()
 
-        def _on_ssl_change(_):
+        def _on_ssl_change(e):
             _update_port()
+            ca_cert_input.set_visibility(e.value)
 
         protocol_select.on_value_change(_on_protocol_change)
         ssl_switch.on_value_change(_on_ssl_change)
@@ -84,6 +92,7 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None):
                     password=password_input.value or '',
                     protocol=protocol_select.value,
                     secure=ssl_switch.value,
+                    ca_cert=(ca_cert_input.value or '').strip(),
                 )
                 dialog.close()
                 on_save(cfg)

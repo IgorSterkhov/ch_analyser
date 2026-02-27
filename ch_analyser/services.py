@@ -640,6 +640,30 @@ class AnalysisService:
 
     # ── Text Log analysis ───────────────────────────────────────────
 
+    def get_disk_usage_bytes(self) -> list[dict]:
+        """Return [{name, total_bytes, used_bytes}] for monitoring."""
+        rows = self._client.execute(
+            "SELECT name, "
+            "  total_space AS total_bytes, "
+            "  (total_space - free_space) AS used_bytes "
+            "FROM system.disks"
+        )
+        return rows
+
+    def get_table_sizes_bytes(self) -> list[dict]:
+        """Return [{database, table, size_bytes}] for monitoring."""
+        excluded = list(EXCLUDED_DATABASES)
+        rows = self._client.execute(
+            "SELECT database, table, "
+            "  sum(bytes_on_disk) AS size_bytes "
+            "FROM system.parts "
+            "WHERE active AND database NOT IN %(excluded)s "
+            "GROUP BY database, table "
+            "ORDER BY size_bytes DESC",
+            {"excluded": excluded},
+        )
+        return rows
+
     def get_text_log_summary(self) -> list[dict]:
         """Aggregated text_log summary grouped by thread_name, level, message_format_string."""
         try:

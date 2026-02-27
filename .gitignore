@@ -11,3 +11,6 @@ venv/
 .nicegui/
 *.crt
 .local/
+data/
+*.duckdb
+*.duckdb.wal

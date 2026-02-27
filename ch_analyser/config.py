@@ -11,6 +11,16 @@ CONN_PREFIX = "CLICKHOUSE_CONNECTION_"
 CONN_PATTERN = re.compile(r"^CLICKHOUSE_CONNECTION_(\d+)_(.+)$")
 FIELDS = ("NAME", "HOST", "PORT", "USER", "PASSWORD", "PROTOCOL", "SECURE")
 
+APP_SETTING_PREFIX = "APP_SETTING_"
+APP_SETTING_PATTERN = re.compile(r"^APP_SETTING_(.+)$")
+
+APP_SETTINGS_DEFAULTS = {
+    "DISK_WARNING_PCT": "80",
+    "DISK_CRITICAL_PCT": "90",
+    "MONITORING_RETENTION_DAYS": "365",
+    "MONITORING_DB_PATH": "data/monitoring.duckdb",
+}
+
 
 @dataclass
 class ConnectionConfig:
@@ -130,3 +140,43 @@ class ConnectionManager:
                 f.write(f"{prefix}PASSWORD={cfg.password}\n")
                 f.write(f"{prefix}PROTOCOL={cfg.protocol}\n")
                 f.write(f"{prefix}SECURE={str(cfg.secure).lower()}\n")
+
+
+class AppSettingsManager:
+    """Application-level settings stored in .env as APP_SETTING_<KEY>=<VALUE>."""
+
+    def __init__(self, env_path: str = ".env"):
+        self._env_path = env_path
+
+    def get(self, key: str, default: str | None = None) -> str:
+        fallback = APP_SETTINGS_DEFAULTS.get(key, default or "")
+        if not os.path.exists(self._env_path):
+            return fallback
+        values = dotenv_values(self._env_path)
+        return values.get(f"{APP_SETTING_PREFIX}{key}", fallback)
+
+    def get_int(self, key: str, default: int = 0) -> int:
+        try:
+            return int(self.get(key, str(default)))
+        except (ValueError, TypeError):
+            return default
+
+    def set(self, key: str, value: str) -> None:
+        env_key = f"{APP_SETTING_PREFIX}{key}"
+        other_lines: list[str] = []
+        found = False
+        if os.path.exists(self._env_path):
+            with open(self._env_path, "r") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped.startswith(f"{env_key}="):
+                        other_lines.append(f"{env_key}={value}\n")
+                        found = True
+                    else:
+                        other_lines.append(line)
+        if not found:
+            other_lines.append(f"{env_key}={value}\n")
+        with open(self._env_path, "w") as f:
+            for line in other_lines:
+                f.write(line)
+        logger.info("App setting %s = %s", key, value)
