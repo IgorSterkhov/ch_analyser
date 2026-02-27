@@ -117,6 +117,22 @@ def show_settings_dialog(on_connections_changed=None):
 
                     ui.button('Save', on_click=_save_monitoring).props('color=primary dense').classes('q-mt-sm')
 
+                    ui.separator().classes('q-my-md')
+                    ui.label('Service').classes('text-subtitle2 q-mb-xs')
+
+                    def _confirm_shutdown():
+                        with ui.dialog() as confirm_dlg, ui.card().classes('q-pa-md'):
+                            ui.label('Stop the service?').classes('text-h6')
+                            ui.label('The application will shut down and must be restarted manually.').classes('text-body2 q-mb-md')
+                            with ui.row().classes('w-full justify-end gap-2'):
+                                ui.button('Cancel', on_click=confirm_dlg.close).props('flat')
+                                ui.button('Stop', on_click=lambda: app.shutdown()).props('color=negative')
+                        confirm_dlg.open()
+
+                    ui.button('Stop Service', icon='power_settings_new', on_click=_confirm_shutdown).props(
+                        'color=negative outline dense'
+                    )
+
         with ui.row().classes('w-full justify-end q-mt-md'):
             ui.button('Close', on_click=dlg.close).props('flat')
 
