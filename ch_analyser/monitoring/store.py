@@ -122,7 +122,7 @@ class MonitoringStore:
     def get_server_disk_history(self, days: int = 30) -> list[dict]:
         """Time series of disk usage per server (sum of all disks)."""
         with self._lock:
-            rows = self._conn.execute("""
+            rows = self._conn.execute(f"""
                 SELECT server_name, ts,
                        sum(total_bytes) AS total_bytes,
                        sum(used_bytes) AS used_bytes
@@ -171,7 +171,7 @@ class MonitoringStore:
             """, [server_name, server_name, top_n]).fetchall()
             top_names = {r[0] for r in top_tables}
 
-            rows = self._conn.execute("""
+            rows = self._conn.execute(f"""
                 SELECT ts,
                        database_name || '.' || table_name AS full_name,
                        size_bytes
