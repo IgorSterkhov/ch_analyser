@@ -254,6 +254,13 @@ SHARED_CSS = '''
     .density-comfortable .q-table th {
         padding: 12px 16px !important;
     }
+    /* Sticky table headers */
+    .q-table thead tr th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: white;
+    }
     /* Nav active highlight */
     .bg-white-3 {
         background: rgba(255,255,255,0.2) !important;

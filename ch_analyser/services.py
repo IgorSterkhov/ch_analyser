@@ -717,6 +717,88 @@ class AnalysisService:
             logger.error("Failed to get user stats: %s", e)
             return []
 
+    def get_user_queries(
+        self, user: str, log_days: int = QUERY_LOG_DAYS_DEFAULT,
+        status: str | None = None, kind: str | None = None, limit: int = 500,
+    ) -> list[dict]:
+        """Get individual queries for a user from query_log.
+
+        status: None (all), 'ok' (no errors), 'error' (only errors)
+        kind: None (all), 'Select', 'Insert', 'Create', 'Other'
+        """
+        try:
+            parts = [
+                "SELECT "
+                "  event_time, query_kind, type, "
+                "  query, exception, exception_code, "
+                "  query_duration_ms, read_rows, written_rows, memory_usage "
+                "FROM system.query_log "
+                "WHERE type IN ('QueryFinish', 'ExceptionWhileProcessing') "
+                f"AND event_time > now() - INTERVAL {int(log_days)} DAY "
+                "AND user = %(user)s"
+            ]
+            params: dict = {"user": user}
+            if status == 'ok':
+                parts.append("AND exception_code = 0")
+            elif status == 'error':
+                parts.append("AND exception_code != 0")
+            if kind == 'Other':
+                parts.append("AND query_kind NOT IN ('Select', 'Insert', 'Create')")
+            elif kind:
+                parts.append("AND query_kind = %(kind)s")
+                params["kind"] = kind
+            parts.append(f"ORDER BY event_time DESC LIMIT {int(limit)}")
+            rows = self._client.execute(' '.join(parts), params)
+            for r in rows:
+                r['event_time'] = str(r['event_time'])
+            return rows
+        except Exception as e:
+            logger.error("Failed to get user queries for %s: %s", user, e)
+            return []
+
+    def get_user_queries_grouped(
+        self, user: str, log_days: int = QUERY_LOG_DAYS_DEFAULT,
+        status: str | None = None, kind: str | None = None,
+    ) -> list[dict]:
+        """Get queries grouped by normalized_query_hash for a user.
+
+        Returns: list of dicts with keys: normalized_query_hash, sample_query,
+        query_count, error_count, last_time, total_duration_ms, last_exception
+        """
+        try:
+            parts = [
+                "SELECT "
+                "  normalized_query_hash, "
+                "  any(query) AS sample_query, "
+                "  count() AS query_count, "
+                "  countIf(exception_code != 0) AS error_count, "
+                "  max(event_time) AS last_time, "
+                "  sum(query_duration_ms) AS total_duration_ms, "
+                "  argMax(exception, event_time) AS last_exception "
+                "FROM system.query_log "
+                "WHERE type IN ('QueryFinish', 'ExceptionWhileProcessing') "
+                f"AND event_time > now() - INTERVAL {int(log_days)} DAY "
+                "AND user = %(user)s"
+            ]
+            params: dict = {"user": user}
+            if status == 'ok':
+                parts.append("AND exception_code = 0")
+            elif status == 'error':
+                parts.append("AND exception_code != 0")
+            if kind == 'Other':
+                parts.append("AND query_kind NOT IN ('Select', 'Insert', 'Create')")
+            elif kind:
+                parts.append("AND query_kind = %(kind)s")
+                params["kind"] = kind
+            parts.append("GROUP BY normalized_query_hash ORDER BY query_count DESC")
+            rows = self._client.execute(' '.join(parts), params)
+            for r in rows:
+                r['last_time'] = str(r['last_time'])
+            return rows
+        except Exception as e:
+            logger.error("Failed to get grouped user queries for %s: %s", user, e)
+            return []
+
     def get_text_log_detail(self, thread_name: str, level: int | None = None) -> list[dict]:
         """Detailed text_log entries for a specific thread_name."""
         try:

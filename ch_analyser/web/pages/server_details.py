@@ -82,7 +82,7 @@ def build_server_details_view(parent, right_drawer, columns_panel) -> ServerDeta
 
         with ui.tab_panels(main_tabs, value=tables_main_tab).classes(
             'w-full q-pt-none flex-grow'
-        ).style('max-height: calc(100vh - 200px); overflow: auto'):
+        ):
             with ui.tab_panel(tables_main_tab).classes('q-pa-xs'):
                 ctx.tables_panel = ui.column().classes('w-full')
                 with ctx.tables_panel:
@@ -101,7 +101,7 @@ def build_server_details_view(parent, right_drawer, columns_panel) -> ServerDeta
         def _on_main_tab_change(e):
             tab = e.value
             _active_main_tab[0] = tab
-            if tab != 'Tables':
+            if tab == 'Text Logs':
                 if ctx.right_drawer and hasattr(ctx.right_drawer, 'value') and ctx.right_drawer.value:
                     ctx.right_drawer.hide()
                 ui.run_javascript(
@@ -262,6 +262,8 @@ def _render_server_info_bar(ctx: ServerDetailsContext, disks):
                 def _on_days_change(e, c=ctx):
                     state.query_log_days = e.value
                     _load_tables(c)
+                    if 'Users' in c.main_tabs_loaded:
+                        _load_users(c)
 
                 ui.select(
                     options={7: '7d', 30: '30d', 90: '90d', 365: '1y'},
@@ -279,6 +281,9 @@ def _load_tables(ctx: ServerDetailsContext):
         with ctx.tables_panel:
             ui.label('Select a connection.').classes('text-grey-7')
         return
+
+    with ctx.tables_panel:
+        ui.spinner('dots', size='lg').classes('self-center q-mt-md')
 
     try:
         data = service.get_tables(log_days=state.query_log_days)
@@ -368,7 +373,8 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
                 <q-td key="size" :props="props">{{ props.row.size }}</q-td>
                 <q-td key="size_pct" :props="props">{{ props.row.size_pct }}</q-td>
                 <q-td key="replicated" :props="props">
-                    <q-icon v-if="props.row.replicated" name="sync" color="primary" size="xs" />
+                    <q-icon v-if="props.row.replicated" name="add_circle" color="primary" size="xs" />
+                    <q-icon v-else name="remove" color="grey-5" size="xs" />
                 </q-td>
                 <q-td key="refs" :props="props">
                     <q-btn v-if="props.row.refs_cnt > 0" flat dense size="sm"
@@ -448,6 +454,9 @@ def _load_columns(ctx: ServerDetailsContext, full_table_name: str):
     service = state.service
     if not service:
         return
+
+    with ctx.columns_panel:
+        ui.spinner('dots', size='lg').classes('self-center q-mt-md')
 
     safe_name = json.dumps(full_table_name)
     ui.run_javascript(f'window.selectedTableName = {safe_name}')
@@ -1001,6 +1010,9 @@ def _load_text_logs(ctx: ServerDetailsContext):
             ui.label('Select a connection.').classes('text-grey-7')
         return
 
+    with ctx.text_logs_panel:
+        ui.spinner('dots', size='lg').classes('self-center q-mt-md')
+
     try:
         data = service.get_text_log_summary()
     except Exception as ex:
@@ -1013,9 +1025,7 @@ def _load_text_logs(ctx: ServerDetailsContext):
             ui.label('No text log entries found (level <= Warning, last 2 weeks).').classes('text-grey-7')
             return
 
-        with ui.splitter(value=100).classes('w-full').style(
-            'height: calc(100vh - 220px)'
-        ) as splitter:
+        with ui.splitter(value=100).classes('w-full') as splitter:
             with splitter.before:
                 ui.button('Refresh', icon='refresh',
                           on_click=lambda: _load_text_logs(ctx)).props('flat dense color=primary')
@@ -1234,6 +1244,9 @@ def _load_users(ctx: ServerDetailsContext):
             ui.label('Select a connection.').classes('text-grey-7')
         return
 
+    with ctx.users_panel:
+        ui.spinner('dots', size='lg').classes('self-center q-mt-md')
+
     try:
         data = service.get_user_stats(log_days=state.query_log_days)
     except Exception as ex:
@@ -1339,4 +1352,281 @@ def _load_users(ctx: ServerDetailsContext):
             pagination={'rowsPerPage': 20, 'sortBy': 'query_count', 'descending': True},
         ).classes('w-full')
 
+        tbl.add_slot('body', r'''
+            <q-tr :props="props" class="cursor-pointer"
+                   @click="
+                     $event.currentTarget.closest('tbody').querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
+                     $event.currentTarget.classList.add('table-row-active');
+                     $parent.$emit('user-click', props.row)
+                   ">
+                <q-td key="user" :props="props">
+                    <span class="text-weight-bold">{{ props.row.user }}</span>
+                </q-td>
+                <q-td key="query_count" :props="props">{{ props.row.query_count }}</q-td>
+                <q-td key="last_query_time" :props="props">{{ props.row.last_query_time }}</q-td>
+                <q-td key="total_duration_sec" :props="props">{{ props.row.total_duration_sec }}</q-td>
+                <q-td key="total_read" :props="props">{{ props.row.total_read }}</q-td>
+                <q-td key="total_written" :props="props">{{ props.row.total_written }}</q-td>
+                <q-td key="peak_memory" :props="props">{{ props.row.peak_memory }}</q-td>
+                <q-td key="selects" :props="props">{{ props.row.selects }}</q-td>
+                <q-td key="inserts" :props="props">{{ props.row.inserts }}</q-td>
+                <q-td key="other_queries" :props="props">{{ props.row.other_queries }}</q-td>
+            </q-tr>
+        ''')
+
+        def _on_user_click(e):
+            row = e.args
+            _load_user_detail(ctx, row['user'])
+
+        tbl.on('user-click', _on_user_click)
+
         tbl.add_slot('pagination', PAGINATION_SLOT)
+
+
+# ── User Drill-Down ──
+
+def _load_user_detail(ctx: ServerDetailsContext, user_name: str):
+    """Open right drawer with user query details."""
+    ctx.columns_panel.clear()
+    service = state.service
+    if not service:
+        return
+
+    ctx.right_drawer.set_value(True)
+
+    with ctx.columns_panel:
+        ui.spinner('dots', size='lg').classes('self-center q-mt-md')
+
+    # State for filters
+    mode = ['all']       # 'all' or 'grouped'
+    status = [None]      # None, 'ok', 'error'
+    kind = [None]        # None, 'Select', 'Insert', 'Create', 'Other'
+
+    def _rebuild():
+        ctx.columns_panel.clear()
+        with ctx.columns_panel:
+            # Header
+            with ui.row().classes('items-center justify-between w-full'):
+                ui.label(f'User: {user_name}').classes('text-subtitle1 text-weight-bold')
+
+            # Mode toggle
+            with ui.row().classes('items-center gap-1 q-mt-xs'):
+                ui.label('Mode:').classes('text-caption text-grey-7')
+                mode_all_btn = ui.button('All queries', on_click=lambda: _set_mode('all')).props(
+                    'dense no-caps size=sm'
+                )
+                mode_grp_btn = ui.button('Grouped', on_click=lambda: _set_mode('grouped')).props(
+                    'dense no-caps size=sm'
+                )
+                if mode[0] == 'all':
+                    mode_all_btn.props('push color=primary')
+                    mode_grp_btn.props('push color=grey-4 text-color=grey-8')
+                else:
+                    mode_all_btn.props('push color=grey-4 text-color=grey-8')
+                    mode_grp_btn.props('push color=primary')
+
+            # Status filter
+            with ui.row().classes('items-center gap-1 q-mt-xs'):
+                ui.label('Status:').classes('text-caption text-grey-7')
+                for val, label in [(None, 'All'), ('ok', 'OK'), ('error', 'Errors')]:
+                    btn = ui.button(label, on_click=lambda v=val: _set_status(v)).props('dense no-caps size=sm')
+                    if status[0] == val:
+                        btn.props('push color=primary')
+                    else:
+                        btn.props('push color=grey-4 text-color=grey-8')
+
+            # Kind filter
+            with ui.row().classes('items-center gap-1 q-mt-xs'):
+                ui.label('Kind:').classes('text-caption text-grey-7')
+                for val, label in [(None, 'All'), ('Select', 'SELECT'), ('Insert', 'INSERT'), ('Create', 'CREATE'), ('Other', 'Other')]:
+                    btn = ui.button(label, on_click=lambda v=val: _set_kind(v)).props('dense no-caps size=sm')
+                    if kind[0] == val:
+                        btn.props('push color=primary')
+                    else:
+                        btn.props('push color=grey-4 text-color=grey-8')
+
+            # Data table
+            try:
+                if mode[0] == 'all':
+                    _render_user_queries_all(service, user_name, status[0], kind[0])
+                else:
+                    _render_user_queries_grouped(service, user_name, status[0], kind[0])
+            except Exception as ex:
+                ui.label(f'Error: {ex}').classes('text-negative')
+
+    def _set_mode(m):
+        mode[0] = m
+        _rebuild()
+
+    def _set_status(s):
+        status[0] = s
+        _rebuild()
+
+    def _set_kind(k):
+        kind[0] = k
+        _rebuild()
+
+    _rebuild()
+
+
+def _render_user_queries_all(service, user_name, status, kind):
+    """Render individual queries table in user drill-down."""
+    data = service.get_user_queries(
+        user=user_name,
+        log_days=state.query_log_days,
+        status=status,
+        kind=kind,
+    )
+
+    if not data:
+        ui.label('No queries found.').classes('text-grey-7 q-mt-sm')
+        return
+
+    rows = []
+    for r in data:
+        is_error = r['exception_code'] != 0
+        query_short = r['query'][:120] + '...' if len(r['query']) > 120 else r['query']
+        rows.append({
+            'event_time': r['event_time'],
+            'query_kind': r['query_kind'],
+            'duration_ms': r['query_duration_ms'],
+            'status': 'error' if is_error else 'ok',
+            'query_short': query_short,
+            'query_full': r['query'],
+            'exception': r['exception'] or '',
+        })
+
+    columns = [
+        {'name': 'event_time', 'label': 'Time', 'field': 'event_time', 'align': 'left', 'sortable': True},
+        {'name': 'query_kind', 'label': 'Kind', 'field': 'query_kind', 'align': 'center'},
+        {'name': 'duration_ms', 'label': 'Duration (ms)', 'field': 'duration_ms', 'align': 'right', 'sortable': True,
+         ':sort': '(a, b) => a - b'},
+        {'name': 'status', 'label': 'Status', 'field': 'status', 'align': 'center'},
+        {'name': 'query_short', 'label': 'Query', 'field': 'query_short', 'align': 'left'},
+    ]
+
+    tbl = ui.table(
+        columns=columns,
+        rows=rows,
+        row_key='event_time',
+        pagination={'rowsPerPage': 50, 'sortBy': 'event_time', 'descending': True},
+    ).classes('w-full q-mt-sm')
+
+    tbl.add_slot('body', r'''
+        <q-tr :props="props" class="cursor-pointer"
+               @click="$parent.$emit('query-click', props.row)">
+            <q-td key="event_time" :props="props" style="white-space: nowrap">
+                {{ props.row.event_time }}
+            </q-td>
+            <q-td key="query_kind" :props="props">
+                <q-badge :color="
+                    props.row.query_kind === 'Select' ? 'blue-4' :
+                    props.row.query_kind === 'Insert' ? 'green-4' :
+                    props.row.query_kind === 'Create' ? 'purple-4' :
+                    'grey-6'
+                " :label="props.row.query_kind" />
+            </q-td>
+            <q-td key="duration_ms" :props="props">{{ props.row.duration_ms }}</q-td>
+            <q-td key="status" :props="props">
+                <q-icon v-if="props.row.status === 'error'" name="cancel" color="negative" size="xs" />
+                <q-icon v-else name="check_circle" color="positive" size="xs" />
+            </q-td>
+            <q-td key="query_short" :props="props" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+                {{ props.row.query_short }}
+            </q-td>
+        </q-tr>
+    ''')
+
+    tbl.add_slot('pagination', PAGINATION_SLOT)
+
+    def _on_query_click(e):
+        row = e.args
+        _show_query_dialog(row['query_full'], row.get('exception', ''))
+
+    tbl.on('query-click', _on_query_click)
+
+
+def _render_user_queries_grouped(service, user_name, status, kind):
+    """Render queries grouped by normalized_query_hash in user drill-down."""
+    data = service.get_user_queries_grouped(
+        user=user_name,
+        log_days=state.query_log_days,
+        status=status,
+        kind=kind,
+    )
+
+    if not data:
+        ui.label('No queries found.').classes('text-grey-7 q-mt-sm')
+        return
+
+    rows = []
+    for r in data:
+        query_short = r['sample_query'][:120] + '...' if len(r['sample_query']) > 120 else r['sample_query']
+        rows.append({
+            'hash': str(r['normalized_query_hash']),
+            'sample_query': query_short,
+            'sample_query_full': r['sample_query'],
+            'query_count': r['query_count'],
+            'error_count': r['error_count'],
+            'last_time': r['last_time'],
+            'total_duration_ms': r['total_duration_ms'],
+            'last_exception': r['last_exception'] or '',
+        })
+
+    columns = [
+        {'name': 'sample_query', 'label': 'Query', 'field': 'sample_query', 'align': 'left'},
+        {'name': 'query_count', 'label': 'Count', 'field': 'query_count', 'align': 'right', 'sortable': True,
+         ':sort': '(a, b) => a - b'},
+        {'name': 'error_count', 'label': 'Errors', 'field': 'error_count', 'align': 'right', 'sortable': True,
+         ':sort': '(a, b) => a - b'},
+        {'name': 'last_time', 'label': 'Last', 'field': 'last_time', 'align': 'center', 'sortable': True},
+        {'name': 'total_duration_ms', 'label': 'Total (ms)', 'field': 'total_duration_ms', 'align': 'right', 'sortable': True,
+         ':sort': '(a, b) => a - b'},
+    ]
+
+    tbl = ui.table(
+        columns=columns,
+        rows=rows,
+        row_key='hash',
+        pagination={'rowsPerPage': 50, 'sortBy': 'query_count', 'descending': True},
+    ).classes('w-full q-mt-sm')
+
+    tbl.add_slot('body', r'''
+        <q-tr :props="props" class="cursor-pointer"
+               @click="$parent.$emit('group-click', props.row)">
+            <q-td key="sample_query" :props="props" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+                {{ props.row.sample_query }}
+            </q-td>
+            <q-td key="query_count" :props="props">{{ props.row.query_count }}</q-td>
+            <q-td key="error_count" :props="props">
+                <span :class="props.row.error_count > 0 ? 'text-negative text-weight-bold' : 'text-grey-5'">
+                    {{ props.row.error_count }}
+                </span>
+            </q-td>
+            <q-td key="last_time" :props="props" style="white-space: nowrap">{{ props.row.last_time }}</q-td>
+            <q-td key="total_duration_ms" :props="props">{{ props.row.total_duration_ms }}</q-td>
+        </q-tr>
+    ''')
+
+    tbl.add_slot('pagination', PAGINATION_SLOT)
+
+    def _on_group_click(e):
+        row = e.args
+        _show_query_dialog(row['sample_query_full'], row.get('last_exception', ''))
+
+    tbl.on('group-click', _on_group_click)
+
+
+def _show_query_dialog(query: str, exception: str = ''):
+    """Show a dialog with the full query text and optional exception."""
+    with ui.dialog() as dlg, ui.card().classes('q-pa-md').style('min-width: 600px; max-width: 80vw'):
+        ui.label('Query').classes('text-h6 q-mb-sm')
+        ui.code(query, language='sql').classes('w-full').style('max-height: 300px; overflow: auto')
+        if exception:
+            ui.label('Exception').classes('text-subtitle2 text-negative q-mt-md q-mb-xs')
+            ui.code(exception).classes('w-full text-negative').style('max-height: 150px; overflow: auto')
+        with ui.row().classes('w-full justify-end q-mt-md gap-2'):
+            copy_js = f'() => window.copyToClipboard({json.dumps(query)})'
+            ui.button('Copy SQL', icon='content_copy').props('flat').on('click', js_handler=copy_js)
+            ui.button('Close', on_click=dlg.close).props('flat')
+    dlg.open()
