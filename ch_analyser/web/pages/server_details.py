@@ -1333,7 +1333,6 @@ def _load_users(ctx: ServerDetailsContext):
 
         def _reset_users():
             active_users.clear()
-            active_users.update(all_users)
             _update_button_styles()
             _apply_filter()
 
@@ -1341,7 +1340,7 @@ def _load_users(ctx: ServerDetailsContext):
             ui.label('User:').classes('text-caption text-grey-7').style('line-height: 28px; white-space: nowrap')
             ui.button(icon='delete_sweep', on_click=_reset_users).props(
                 'flat dense size=sm color=grey-7'
-            ).tooltip('Show all')
+            ).tooltip('Clear all')
             with ui.element('div').classes('flex flex-wrap gap-0'):
                 for u in all_users:
                     btn = ui.button(u, on_click=lambda u=u: _toggle_user(u))
