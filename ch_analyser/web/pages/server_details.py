@@ -288,6 +288,7 @@ def _load_tables(ctx: ServerDetailsContext):
     try:
         data = service.get_tables(log_days=state.query_log_days)
     except Exception as ex:
+        ctx.tables_panel.clear()
         with ctx.tables_panel:
             ui.notify(f'Failed to load tables: {ex}', type='negative')
         return
@@ -473,6 +474,7 @@ def _load_columns(ctx: ServerDetailsContext, full_table_name: str):
         }, 150);
     ''')
 
+    ctx.columns_panel.clear()
     with ctx.columns_panel:
         ui.label(full_table_name).classes(
             'text-subtitle1 text-weight-bold text-center w-full q-pa-xs'
@@ -1016,10 +1018,12 @@ def _load_text_logs(ctx: ServerDetailsContext):
     try:
         data = service.get_text_log_summary()
     except Exception as ex:
+        ctx.text_logs_panel.clear()
         with ctx.text_logs_panel:
             ui.label(f'Failed to load text logs: {ex}').classes('text-negative')
         return
 
+    ctx.text_logs_panel.clear()
     with ctx.text_logs_panel:
         if not data:
             ui.label('No text log entries found (level <= Warning, last 2 weeks).').classes('text-grey-7')
@@ -1250,10 +1254,12 @@ def _load_users(ctx: ServerDetailsContext):
     try:
         data = service.get_user_stats(log_days=state.query_log_days)
     except Exception as ex:
+        ctx.users_panel.clear()
         with ctx.users_panel:
             ui.label(f'Failed to load user stats: {ex}').classes('text-negative')
         return
 
+    ctx.users_panel.clear()
     with ctx.users_panel:
         if not data:
             ui.label('No user statistics found.').classes('text-grey-7')
