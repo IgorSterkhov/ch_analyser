@@ -72,28 +72,44 @@ def _build_dashboard(on_drill_down=None):
 
             _rebuild_server_chart()
 
-    # Wire server table row click → chart legend filtering + row highlighting
+    # Wire server table row click → chart legend filtering + row highlighting (toggle)
     if server_tbl:
+        selected_server = [None]
+
         def _on_server_row_click(e):
             clicked_name = e.args[1]['server_name']
             ref = server_chart_ref[0]
-            if ref:
-                chart_el, _ = ref
-                chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
-                chart_el.run_chart_method('dispatchAction', {'type': 'legendInverseSelect'})
-                chart_el.run_chart_method('dispatchAction', {
-                    'type': 'legendSelect', 'name': clicked_name,
-                })
-            ui.run_javascript(f'''
-                var tbl = document.querySelector('.server-disk-tbl');
-                if (tbl) {{
-                    tbl.querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
-                    tbl.querySelectorAll('tbody tr td:first-child span').forEach(function(span) {{
-                        if (span.textContent.trim() === {_js_str(clicked_name)})
-                            span.closest('tr').classList.add('table-row-active');
-                    }});
-                }}
-            ''')
+
+            if clicked_name == selected_server[0]:
+                # Deselect: show all series, remove highlight
+                selected_server[0] = None
+                if ref:
+                    chart_el, _ = ref
+                    chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
+                ui.run_javascript('''
+                    var tbl = document.querySelector('.server-disk-tbl');
+                    if (tbl) tbl.querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
+                ''')
+            else:
+                # Select: filter to this server, highlight row
+                selected_server[0] = clicked_name
+                if ref:
+                    chart_el, _ = ref
+                    chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
+                    chart_el.run_chart_method('dispatchAction', {'type': 'legendInverseSelect'})
+                    chart_el.run_chart_method('dispatchAction', {
+                        'type': 'legendSelect', 'name': clicked_name,
+                    })
+                ui.run_javascript(f'''
+                    var tbl = document.querySelector('.server-disk-tbl');
+                    if (tbl) {{
+                        tbl.querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
+                        tbl.querySelectorAll('tbody tr td:first-child span').forEach(function(span) {{
+                            if (span.textContent.trim() === {_js_str(clicked_name)})
+                                span.closest('tr').classList.add('table-row-active');
+                        }});
+                    }}
+                ''')
 
         server_tbl.on('row-click', _on_server_row_click)
 
@@ -135,27 +151,40 @@ def _build_dashboard(on_drill_down=None):
                 with ui.column().classes('q-pa-xs').style('width: 58%; min-width: 400px'):
                     chart_result = _build_table_disk_chart(store, srv, topn)
 
-            # Wire table row click → chart legend filtering + row highlighting
+            # Wire table row click → chart legend filtering + row highlighting (toggle)
             if tbl and chart_result:
                 chart_el, table_names = chart_result
+                selected_table = [None]
 
                 def _on_row_click(e):
                     clicked_name = e.args[1]['table_name']
-                    chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
-                    chart_el.run_chart_method('dispatchAction', {'type': 'legendInverseSelect'})
-                    chart_el.run_chart_method('dispatchAction', {
-                        'type': 'legendSelect', 'name': clicked_name,
-                    })
-                    ui.run_javascript(f'''
-                        var tbl = document.querySelector('.tables-disk-tbl');
-                        if (tbl) {{
-                            tbl.querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
-                            tbl.querySelectorAll('tbody tr td:first-child').forEach(function(td) {{
-                                if (td.textContent.trim() === {_js_str(clicked_name)})
-                                    td.closest('tr').classList.add('table-row-active');
-                            }});
-                        }}
-                    ''')
+
+                    if clicked_name == selected_table[0]:
+                        # Deselect: show all series, remove highlight
+                        selected_table[0] = None
+                        chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
+                        ui.run_javascript('''
+                            var tbl = document.querySelector('.tables-disk-tbl');
+                            if (tbl) tbl.querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
+                        ''')
+                    else:
+                        # Select: filter to this table, highlight row
+                        selected_table[0] = clicked_name
+                        chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
+                        chart_el.run_chart_method('dispatchAction', {'type': 'legendInverseSelect'})
+                        chart_el.run_chart_method('dispatchAction', {
+                            'type': 'legendSelect', 'name': clicked_name,
+                        })
+                        ui.run_javascript(f'''
+                            var tbl = document.querySelector('.tables-disk-tbl');
+                            if (tbl) {{
+                                tbl.querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
+                                tbl.querySelectorAll('tbody tr td:first-child').forEach(function(td) {{
+                                    if (td.textContent.trim() === {_js_str(clicked_name)})
+                                        td.closest('tr').classList.add('table-row-active');
+                                }});
+                            }}
+                        ''')
 
                 tbl.on('row-click', _on_row_click)
 
@@ -440,10 +469,11 @@ def _build_table_disk_chart(store, server_name: str, top_n: int):
             'right': 0,
             'top': 20,
             'bottom': 20,
+            'width': '23%',
         },
         'grid': {
             'left': '3%',
-            'right': '20%',
+            'right': '25%',
             'bottom': '10%',
             'containLabel': True,
         },
