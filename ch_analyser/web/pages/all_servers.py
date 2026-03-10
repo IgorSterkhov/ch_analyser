@@ -1,5 +1,6 @@
 """All Servers dashboard — disk usage overview with tables and ECharts."""
 
+import json
 from datetime import datetime
 
 from nicegui import ui
@@ -9,6 +10,11 @@ from ch_analyser.web.components.settings_dialog import get_admin_settings
 from ch_analyser.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def _js_str(value: str) -> str:
+    """Escape a Python string for safe inline use in JavaScript."""
+    return json.dumps(value)
 
 
 def _format_bytes(b: int) -> str:
@@ -39,10 +45,13 @@ def _build_dashboard(on_drill_down=None):
     # ── Block 1: Disk usage by servers ──
     ui.label('Disk usage by servers').classes('text-h6 q-mb-sm')
 
+    # Mutable container for chart reference (rebuilt on days change)
+    server_chart_ref = [None]  # [0] = (chart_el, server_names) or None
+
     with ui.row().classes('w-full gap-4 items-start'):
         # Left: table (40%)
         with ui.column().classes('q-pa-xs').style('width: 40%; min-width: 300px'):
-            _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down)
+            server_tbl = _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down)
 
         # Right: chart (60%) with days selector
         with ui.column().classes('q-pa-xs').style('width: 58%; min-width: 400px'):
@@ -51,7 +60,7 @@ def _build_dashboard(on_drill_down=None):
             def _rebuild_server_chart():
                 server_chart_container.clear()
                 with server_chart_container:
-                    _build_server_disk_chart(store, warn_pct, crit_pct, days=days_select.value)
+                    server_chart_ref[0] = _build_server_disk_chart(store, warn_pct, crit_pct, days=days_select.value)
 
             with ui.row().classes('items-center gap-2 q-mb-xs'):
                 days_select = ui.select(
@@ -62,6 +71,31 @@ def _build_dashboard(on_drill_down=None):
                 days_select.on_value_change(lambda _: _rebuild_server_chart())
 
             _rebuild_server_chart()
+
+    # Wire server table row click → chart legend filtering + row highlighting
+    if server_tbl:
+        def _on_server_row_click(e):
+            clicked_name = e.args[1]['server_name']
+            ref = server_chart_ref[0]
+            if ref:
+                chart_el, _ = ref
+                chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
+                chart_el.run_chart_method('dispatchAction', {'type': 'legendInverseSelect'})
+                chart_el.run_chart_method('dispatchAction', {
+                    'type': 'legendSelect', 'name': clicked_name,
+                })
+            ui.run_javascript(f'''
+                var tbl = document.querySelector('.server-disk-tbl');
+                if (tbl) {{
+                    tbl.querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
+                    tbl.querySelectorAll('tbody tr td:first-child span').forEach(function(span) {{
+                        if (span.textContent.trim() === {_js_str(clicked_name)})
+                            span.closest('tr').classList.add('table-row-active');
+                    }});
+                }}
+            ''')
+
+        server_tbl.on('row-click', _on_server_row_click)
 
     ui.separator().classes('q-my-md')
 
@@ -101,7 +135,7 @@ def _build_dashboard(on_drill_down=None):
                 with ui.column().classes('q-pa-xs').style('width: 58%; min-width: 400px'):
                     chart_result = _build_table_disk_chart(store, srv, topn)
 
-            # Wire table row click → chart legend filtering
+            # Wire table row click → chart legend filtering + row highlighting
             if tbl and chart_result:
                 chart_el, table_names = chart_result
 
@@ -112,6 +146,16 @@ def _build_dashboard(on_drill_down=None):
                     chart_el.run_chart_method('dispatchAction', {
                         'type': 'legendSelect', 'name': clicked_name,
                     })
+                    ui.run_javascript(f'''
+                        var tbl = document.querySelector('.tables-disk-tbl');
+                        if (tbl) {{
+                            tbl.querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
+                            tbl.querySelectorAll('tbody tr td:first-child').forEach(function(td) {{
+                                if (td.textContent.trim() === {_js_str(clicked_name)})
+                                    td.closest('tr').classList.add('table-row-active');
+                            }});
+                        }}
+                    ''')
 
                 tbl.on('row-click', _on_row_click)
 
@@ -122,12 +166,12 @@ def _build_dashboard(on_drill_down=None):
 
 
 def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None):
-    """Render the server disk usage table."""
+    """Render the server disk usage table. Returns ui.table or None."""
     data = store.get_server_disk_latest()
 
     if not data:
         ui.label('No monitoring data yet. Data appears after the first collection cycle.').classes('text-grey-7')
-        return
+        return None
 
     rows = []
     for d in data:
@@ -164,10 +208,10 @@ def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None):
         rows=rows,
         row_key='server_name',
         pagination={'rowsPerPage': 0, 'sortBy': 'pct', 'descending': True},
-    ).classes('w-full')
+    ).classes('w-full server-disk-tbl')
 
     tbl.add_slot('body', r'''
-        <q-tr :props="props">
+        <q-tr :props="props" @click="$parent.$emit('row-click', $event, props.row)" style="cursor: pointer">
             <q-td key="server_name" :props="props">
                 <span class="text-weight-bold">{{ props.row.server_name }}</span>
             </q-td>
@@ -197,14 +241,16 @@ def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None):
             on_drill_down(row['server_name'])
         tbl.on('drill-down', _on_drill)
 
+    return tbl
+
 
 def _build_server_disk_chart(store, warn_pct, crit_pct, days=30):
-    """Render the server disk usage chart (ECharts line chart)."""
+    """Render the server disk usage chart. Returns (echart, server_names) or None."""
     history = store.get_server_disk_history(days=days)
 
     if not history:
         ui.label('No historical data yet.').classes('text-grey-7')
-        return
+        return None
 
     # Group by server
     servers: dict[str, list] = {}
@@ -220,6 +266,8 @@ def _build_server_disk_chart(store, warn_pct, crit_pct, days=30):
             ts_str = str(ts)
         servers.setdefault(name, []).append([ts_str, pct])
 
+    server_names = list(servers.keys())
+
     series = []
     for name, points in servers.items():
         series.append({
@@ -234,15 +282,20 @@ def _build_server_disk_chart(store, warn_pct, crit_pct, days=30):
         'tooltip': {
             'trigger': 'axis',
             'axisPointer': {'type': 'cross'},
+            'confine': True,
         },
         'legend': {
-            'data': list(servers.keys()),
-            'bottom': 0,
+            'data': server_names,
+            'type': 'scroll',
+            'orient': 'vertical',
+            'right': 0,
+            'top': 20,
+            'bottom': 20,
         },
         'grid': {
             'left': '3%',
-            'right': '4%',
-            'bottom': '8%',
+            'right': '20%',
+            'bottom': '3%',
             'containLabel': True,
         },
         'xAxis': {
@@ -269,7 +322,21 @@ def _build_server_disk_chart(store, warn_pct, crit_pct, days=30):
             ],
         }
 
-    ui.echart(options).classes('w-full').style('height: 350px')
+    # Show all / Hide all buttons
+    with ui.row().classes('items-center gap-1 q-mb-xs'):
+        def _show_all():
+            chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
+
+        def _hide_all():
+            chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
+            chart_el.run_chart_method('dispatchAction', {'type': 'legendInverseSelect'})
+
+        ui.button('Show all', on_click=_show_all).props('flat dense size=sm no-caps')
+        ui.button('Hide all', on_click=_hide_all).props('flat dense size=sm no-caps')
+
+    chart_el = ui.echart(options).classes('w-full').style('height: 350px')
+
+    return chart_el, server_names
 
 
 def _build_table_disk_table(store, server_name: str, top_n: int, on_drill_down=None):
@@ -318,7 +385,7 @@ def _build_table_disk_table(store, server_name: str, top_n: int, on_drill_down=N
         rows=rows,
         row_key='table_name',
         pagination={'rowsPerPage': 0, 'sortBy': 'size', 'descending': True},
-    ).classes('w-full')
+    ).classes('w-full tables-disk-tbl')
 
     return tbl
 
