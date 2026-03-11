@@ -1,6 +1,8 @@
-from nicegui import ui
+from nicegui import run, ui
 
+from ch_analyser.client import CHClient
 from ch_analyser.config import ConnectionConfig
+import ch_analyser.web.state as state
 
 PORT_DEFAULTS = {
     ("native", False): 9000,
@@ -8,6 +10,21 @@ PORT_DEFAULTS = {
     ("http", False): 8123,
     ("http", True): 8443,
 }
+
+
+def _show_test_result(success: bool, error: str = ''):
+    with ui.dialog() as result_dialog, ui.card().classes('w-96'):
+        ui.label('Test Result').classes('text-h6 q-mb-sm')
+        if success:
+            ui.label('Connection successful').classes('text-positive text-bold')
+        else:
+            ui.label('Connection failed').classes('text-negative text-bold q-mb-sm')
+            ui.label(error).classes('text-negative').style(
+                'white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto'
+            )
+        with ui.row().classes('w-full justify-end q-mt-md'):
+            ui.button('Close', on_click=result_dialog.close).props('flat')
+    result_dialog.open()
 
 
 def connection_dialog(on_save, existing: ConnectionConfig | None = None, title: str | None = None):
@@ -78,23 +95,47 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None, title: 
         protocol_select.on_value_change(_on_protocol_change)
         ssl_switch.on_value_change(_on_ssl_change)
 
+        def _build_config():
+            return ConnectionConfig(
+                name=name_input.value.strip() or 'test',
+                host=host_input.value.strip(),
+                port=int(port_input.value or 9000),
+                user=user_input.value.strip() or 'default',
+                password=password_input.value or '',
+                protocol=protocol_select.value,
+                secure=ssl_switch.value,
+                ca_cert=(ca_cert_input.value or '').strip(),
+            )
+
         with ui.row().classes('w-full justify-end q-mt-md gap-2'):
             ui.button('Cancel', on_click=dialog.close).props('flat')
+
+            async def handle_test():
+                if not host_input.value:
+                    ui.notify('Host is required', type='warning')
+                    return
+                cfg = _build_config()
+                if state.conn_manager:
+                    cfg.ca_cert = cfg.ca_cert or state.conn_manager.ca_cert
+                client = CHClient(cfg)
+                try:
+                    await run.io_bound(client.connect)
+                    _show_test_result(success=True)
+                except Exception as e:
+                    _show_test_result(success=False, error=str(e))
+                finally:
+                    try:
+                        client.disconnect()
+                    except Exception:
+                        pass
+
+            ui.button('Test', on_click=handle_test).props('flat color=positive')
 
             def handle_save():
                 if not name_input.value or not host_input.value:
                     ui.notify('Name and Host are required', type='warning')
                     return
-                cfg = ConnectionConfig(
-                    name=name_input.value.strip(),
-                    host=host_input.value.strip(),
-                    port=int(port_input.value or 9000),
-                    user=user_input.value.strip() or 'default',
-                    password=password_input.value or '',
-                    protocol=protocol_select.value,
-                    secure=ssl_switch.value,
-                    ca_cert=(ca_cert_input.value or '').strip(),
-                )
+                cfg = _build_config()
                 dialog.close()
                 on_save(cfg)
 
