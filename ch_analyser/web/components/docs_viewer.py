@@ -61,7 +61,7 @@ def show_docs_dialog():
                 btn.update()
 
         # Body: sidebar + content — takes all remaining height
-        with ui.element('div').style('flex: 1 1 0; min-height: 0; position: relative'):
+        with ui.element('div').style('flex: 1 1 0; min-height: 0; position: relative; width: 100%'):
             # Sidebar (absolute left)
             with ui.column().classes('q-pa-md gap-1').style(
                 'position: absolute; left: 0; top: 0; bottom: 0; width: 240px; overflow-y: auto'
