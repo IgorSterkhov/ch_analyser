@@ -48,29 +48,43 @@ def _build_dashboard(on_drill_down=None):
     # Mutable container for chart reference (rebuilt on days change)
     server_chart_ref = [None]  # [0] = (chart_el, server_names) or None
 
+    def _show_all_servers():
+        ref = server_chart_ref[0]
+        if ref:
+            ref[0].run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
+
+    def _hide_all_servers():
+        ref = server_chart_ref[0]
+        if ref:
+            ref[0].run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
+            ref[0].run_chart_method('dispatchAction', {'type': 'legendInverseSelect'})
+
+    # Controls row
+    with ui.row().classes('w-full gap-4 items-end'):
+        ui.element('div').style('width: 40%; min-width: 300px')
+        with ui.row().classes('items-center gap-2 q-mb-xs').style('width: 58%; min-width: 400px'):
+            days_select = ui.select(
+                options=[30, 60, 90, 180, 365],
+                value=30,
+                label='Days',
+            ).props('dense outlined').style('min-width: 100px')
+            ui.button('Show all', on_click=_show_all_servers).props('dense outlined size=sm no-caps')
+            ui.button('Hide all', on_click=_hide_all_servers).props('dense outlined size=sm no-caps')
+
+    # Table + Chart row (aligned top edges)
     with ui.row().classes('w-full gap-4 items-start'):
-        # Left: table (40%)
         with ui.column().classes('q-pa-xs').style('width: 40%; min-width: 300px'):
             server_tbl = _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down)
 
-        # Right: chart (60%) with days selector
-        with ui.column().classes('q-pa-xs').style('width: 58%; min-width: 400px'):
-            server_chart_container = ui.column().classes('w-full')
+        server_chart_container = ui.column().classes('q-pa-xs').style('width: 58%; min-width: 400px')
 
-            def _rebuild_server_chart():
-                server_chart_container.clear()
-                with server_chart_container:
-                    server_chart_ref[0] = _build_server_disk_chart(store, warn_pct, crit_pct, days=days_select.value)
+    def _rebuild_server_chart():
+        server_chart_container.clear()
+        with server_chart_container:
+            server_chart_ref[0] = _build_server_disk_chart(store, warn_pct, crit_pct, days=days_select.value)
 
-            with ui.row().classes('items-center gap-2 q-mb-xs'):
-                days_select = ui.select(
-                    options=[30, 60, 90, 180, 365],
-                    value=30,
-                    label='Days',
-                ).props('dense outlined').style('min-width: 100px')
-                days_select.on_value_change(lambda _: _rebuild_server_chart())
-
-            _rebuild_server_chart()
+    days_select.on_value_change(lambda _: _rebuild_server_chart())
+    _rebuild_server_chart()
 
     # Wire server table row click → chart legend filtering + row highlighting (toggle)
     if server_tbl:
@@ -118,23 +132,42 @@ def _build_dashboard(on_drill_down=None):
     # ── Block 2: Disk usage by tables ──
     ui.label('Disk usage by tables').classes('text-h6 q-mb-sm')
 
-    # Server selector + top-N
     connections = state.conn_manager.list_connections()
     server_names = [c.name for c in connections]
 
-    with ui.row().classes('items-center gap-2 q-mb-sm'):
-        table_server_select = ui.select(
-            options=server_names,
-            value=server_names[0] if server_names else None,
-            label='Server',
-        ).props('dense outlined').style('min-width: 200px')
+    table_chart_ref = [None]  # [0] = (chart_el, table_names) or None
 
-        table_topn_select = ui.select(
-            options=[30, 50, 100],
-            value=30,
-            label='Top N',
-        ).props('dense outlined').style('min-width: 100px')
+    def _show_all_tables():
+        ref = table_chart_ref[0]
+        if ref:
+            ref[0].run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
 
+    def _hide_all_tables():
+        ref = table_chart_ref[0]
+        if ref:
+            ref[0].run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
+            ref[0].run_chart_method('dispatchAction', {'type': 'legendInverseSelect'})
+
+    # Controls row — selects left, show/hide right
+    with ui.row().classes('w-full gap-4 items-end'):
+        with ui.row().classes('items-center gap-2').style('width: 40%; min-width: 300px'):
+            table_server_select = ui.select(
+                options=server_names,
+                value=server_names[0] if server_names else None,
+                label='Server',
+            ).props('dense outlined').style('min-width: 200px')
+
+            table_topn_select = ui.select(
+                options=[30, 50, 100],
+                value=30,
+                label='Top N',
+            ).props('dense outlined').style('min-width: 100px')
+
+        with ui.row().classes('items-center gap-2 q-mb-xs').style('width: 58%; min-width: 400px'):
+            ui.button('Show all', on_click=_show_all_tables).props('dense outlined size=sm no-caps')
+            ui.button('Hide all', on_click=_hide_all_tables).props('dense outlined size=sm no-caps')
+
+    # Table + Chart row
     tables_container = ui.column().classes('w-full')
 
     def _reload_tables():
@@ -151,6 +184,8 @@ def _build_dashboard(on_drill_down=None):
                 with ui.column().classes('q-pa-xs').style('width: 58%; min-width: 400px'):
                     chart_result = _build_table_disk_chart(store, srv, topn)
 
+            table_chart_ref[0] = chart_result
+
             # Wire table row click → chart legend filtering + row highlighting (toggle)
             if tbl and chart_result:
                 chart_el, table_names = chart_result
@@ -160,7 +195,6 @@ def _build_dashboard(on_drill_down=None):
                     clicked_name = e.args[1]['table_name']
 
                     if clicked_name == selected_table[0]:
-                        # Deselect: show all series, remove highlight
                         selected_table[0] = None
                         chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
                         ui.run_javascript('''
@@ -168,7 +202,6 @@ def _build_dashboard(on_drill_down=None):
                             if (tbl) tbl.querySelectorAll('.table-row-active').forEach(r => r.classList.remove('table-row-active'));
                         ''')
                     else:
-                        # Select: filter to this table, highlight row
                         selected_table[0] = clicked_name
                         chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
                         chart_el.run_chart_method('dispatchAction', {'type': 'legendInverseSelect'})
@@ -367,18 +400,6 @@ def _build_server_disk_chart(store, warn_pct, crit_pct, days=30):
             ],
         }
 
-    # Show all / Hide all buttons
-    with ui.row().classes('items-center gap-1 q-mb-xs'):
-        def _show_all():
-            chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
-
-        def _hide_all():
-            chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
-            chart_el.run_chart_method('dispatchAction', {'type': 'legendInverseSelect'})
-
-        ui.button('Show all', on_click=_show_all).props('flat dense size=sm no-caps')
-        ui.button('Hide all', on_click=_hide_all).props('flat dense size=sm no-caps')
-
     chart_el = ui.echart(options).classes('w-full').style('height: 350px')
 
     return chart_el, server_names
@@ -490,7 +511,7 @@ def _build_table_disk_chart(store, server_name: str, top_n: int):
         'grid': {
             'left': '3%',
             'right': '25%',
-            'bottom': '10%',
+            'bottom': '3%',
             'containLabel': True,
         },
         'xAxis': {
@@ -502,23 +523,7 @@ def _build_table_disk_chart(store, server_name: str, top_n: int):
             'name': 'Size (GiB)',
         },
         'series': series,
-        'dataZoom': [
-            {'type': 'slider', 'start': 0, 'end': 100},
-            {'type': 'inside'},
-        ],
     }
-
-    # Show all / Hide all buttons
-    with ui.row().classes('items-center gap-1 q-mb-xs'):
-        def _show_all():
-            chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
-
-        def _hide_all():
-            chart_el.run_chart_method('dispatchAction', {'type': 'legendAllSelect'})
-            chart_el.run_chart_method('dispatchAction', {'type': 'legendInverseSelect'})
-
-        ui.button('Show all', on_click=_show_all).props('flat dense size=sm no-caps')
-        ui.button('Hide all', on_click=_hide_all).props('flat dense size=sm no-caps')
 
     chart_el = ui.echart(options).classes('w-full').style('height: 350px')
 
