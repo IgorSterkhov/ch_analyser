@@ -71,6 +71,28 @@ ch_analyser/
 └────────────┴──────────────────┴──────────────────────┘
 ```
 
+## NiceGUI Layout: Scrollable Areas
+
+**НЕ использовать** `ui.column()` + `height: 100%` / `overflow-auto` для скроллируемых областей — flex-контейнеры NiceGUI расширяются под контент, ломая скролл. `calc(100vh - Xpx)` тоже ненадёжен в flex-контексте.
+
+**Рабочий паттерн — absolute positioning:**
+```python
+# Обёртка: занимает оставшееся пространство + position relative
+with ui.element('div').style(
+    'flex: 1 1 0; min-height: 0; position: relative; width: 100%'
+):
+    # Фиксированная панель
+    with ui.column().style(
+        'position: absolute; left: 0; top: 0; bottom: 0; width: 240px'
+    ):
+        ...
+    # Скроллируемый контент — ui.element('div'), НЕ ui.column()
+    content = ui.element('div').style(
+        'position: absolute; left: 240px; top: 0; right: 0; bottom: 0; overflow-y: auto'
+    )
+```
+Пример: `ch_analyser/web/components/docs_viewer.py`
+
 ## Conventions
 - All new ClickHouse queries go into `services.py` as methods on `AnalysisService`
 - Use `formatReadableSize()` in SQL for human-readable sizes

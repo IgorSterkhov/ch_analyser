@@ -4,6 +4,7 @@ from nicegui import ui, app
 
 import ch_analyser.web.state as state
 from ch_analyser.web.auth_helpers import is_admin
+from ch_analyser.config import ConnectionConfig
 from ch_analyser.web.components.connection_dialog import connection_dialog
 
 DEFAULT_SETTINGS = {
@@ -43,7 +44,7 @@ def show_settings_dialog(on_connections_changed=None):
     settings = get_settings()
     admin = is_admin()
 
-    with ui.dialog() as dlg, ui.card().classes('q-pa-md').style('min-width: 500px; max-width: 600px'):
+    with ui.dialog() as dlg, ui.card().classes('q-pa-md').style('min-width: 700px; max-width: 900px'):
         ui.label('Settings').classes('text-h6 q-mb-sm')
 
         with ui.tabs().classes('w-full').props('dense') as tabs:
@@ -140,7 +141,7 @@ def show_settings_dialog(on_connections_changed=None):
 
 
 def _build_connections_list(container, dlg, on_connections_changed=None):
-    """Render connection cards inside the Connections tab."""
+    """Render connections table inside the Connections tab."""
     container.clear()
     connections = state.conn_manager.list_connections()
     active_name = state.active_connection_name or ''
@@ -150,25 +151,72 @@ def _build_connections_list(container, dlg, on_connections_changed=None):
             ui.label('No connections configured.').classes('text-grey-7')
             return
 
+        rows = []
         for cfg in connections:
-            is_active = cfg.name == active_name
-            bg = 'bg-blue-1' if is_active else ''
+            proto = 'HTTPS' if cfg.secure else cfg.protocol.upper()
+            rows.append({
+                'name': cfg.name,
+                'host_port': f'{cfg.host}:{cfg.port}',
+                'protocol': proto,
+                'status': 'Connected' if cfg.name == active_name else '',
+            })
 
-            with ui.card().classes(f'w-full q-pa-xs {bg}').props('flat bordered'):
-                with ui.row().classes('items-center w-full justify-between no-wrap'):
-                    with ui.column().classes('gap-0'):
-                        ui.label(cfg.name).classes('text-weight-bold' if is_active else '')
-                        ui.label(f'{cfg.host}:{cfg.port}').classes('text-caption text-grey-7')
-                        if is_active:
-                            ui.label('Connected').classes('text-caption text-green')
+        columns = [
+            {'name': 'name', 'label': 'Name', 'field': 'name', 'align': 'left', 'sortable': True},
+            {'name': 'host_port', 'label': 'Host', 'field': 'host_port', 'align': 'left', 'sortable': True},
+            {'name': 'protocol', 'label': 'Protocol', 'field': 'protocol', 'align': 'left', 'sortable': True},
+            {'name': 'status', 'label': 'Status', 'field': 'status', 'align': 'center'},
+            {'name': 'actions', 'label': '', 'field': 'actions', 'align': 'right'},
+        ]
 
-                    with ui.row().classes('gap-1'):
-                        ui.button(icon='edit', on_click=lambda c=cfg: _on_edit_conn(
-                            c, container, dlg, on_connections_changed
-                        )).props('flat dense size=sm')
-                        ui.button(icon='delete', on_click=lambda c=cfg: _on_delete_conn(
-                            c, container, dlg, on_connections_changed
-                        )).props('flat dense size=sm color=negative')
+        tbl = ui.table(
+            columns=columns,
+            rows=rows,
+            row_key='name',
+            pagination={'rowsPerPage': 0, 'sortBy': 'name'},
+        ).classes('w-full').props('dense flat')
+
+        tbl.add_slot('body', r'''
+            <q-tr :props="props">
+                <q-td key="name" :props="props">
+                    <span :class="props.row.status ? 'text-weight-bold' : ''">
+                        {{ props.row.name }}
+                    </span>
+                </q-td>
+                <q-td key="host_port" :props="props">{{ props.row.host_port }}</q-td>
+                <q-td key="protocol" :props="props">{{ props.row.protocol }}</q-td>
+                <q-td key="status" :props="props">
+                    <q-badge v-if="props.row.status" color="positive" :label="props.row.status" />
+                </q-td>
+                <q-td key="actions" :props="props">
+                    <q-btn flat dense size="sm" icon="edit"
+                           @click.stop="$parent.$emit('edit', props.row)" />
+                    <q-btn flat dense size="sm" icon="content_copy"
+                           @click.stop="$parent.$emit('copy', props.row)" />
+                    <q-btn flat dense size="sm" icon="delete" color="negative"
+                           @click.stop="$parent.$emit('delete', props.row)" />
+                </q-td>
+            </q-tr>
+        ''')
+
+        def _on_edit(e):
+            cfg = state.conn_manager.get_connection(e.args['name'])
+            if cfg:
+                _on_edit_conn(cfg, container, dlg, on_connections_changed)
+
+        def _on_copy(e):
+            cfg = state.conn_manager.get_connection(e.args['name'])
+            if cfg:
+                _on_copy_conn(cfg, container, dlg, on_connections_changed)
+
+        def _on_delete(e):
+            cfg = state.conn_manager.get_connection(e.args['name'])
+            if cfg:
+                _on_delete_conn(cfg, container, dlg, on_connections_changed)
+
+        tbl.on('edit', _on_edit)
+        tbl.on('copy', _on_copy)
+        tbl.on('delete', _on_delete)
 
 
 def _on_edit_conn(cfg, container, dlg, on_connections_changed):
@@ -182,6 +230,32 @@ def _on_edit_conn(cfg, container, dlg, on_connections_changed):
         except Exception as ex:
             ui.notify(str(ex), type='negative')
     connection_dialog(on_save=save, existing=cfg)
+
+
+def _on_copy_conn(cfg, container, dlg, on_connections_changed):
+    """Open connection dialog pre-filled with a copy (name + ' copy', password cleared)."""
+    copy_cfg = ConnectionConfig(
+        name=f'{cfg.name} copy',
+        host=cfg.host,
+        port=cfg.port,
+        user=cfg.user,
+        password='',
+        protocol=cfg.protocol,
+        secure=cfg.secure,
+        ca_cert=cfg.ca_cert,
+    )
+
+    def save(new_cfg):
+        try:
+            state.conn_manager.add_connection(new_cfg)
+            ui.notify(f'Added "{new_cfg.name}"', type='positive')
+            _build_connections_list(container, dlg, on_connections_changed)
+            if on_connections_changed:
+                on_connections_changed()
+        except Exception as ex:
+            ui.notify(str(ex), type='negative')
+
+    connection_dialog(on_save=save, existing=copy_cfg, title='New Connection')
 
 
 def _on_delete_conn(cfg, container, dlg, on_connections_changed):

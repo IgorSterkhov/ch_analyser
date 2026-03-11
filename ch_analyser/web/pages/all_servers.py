@@ -196,13 +196,15 @@ def _build_dashboard(on_drill_down=None):
 
 def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None):
     """Render the server disk usage table. Returns ui.table or None."""
-    data = store.get_server_disk_latest()
+    data = store.get_server_disk_latest() if store else []
+    connections = state.conn_manager.list_connections()
 
-    if not data:
+    if not data and not connections:
         ui.label('No monitoring data yet. Data appears after the first collection cycle.').classes('text-grey-7')
         return None
 
     rows = []
+    monitored_names = set()
     for d in data:
         total = d['total_bytes']
         used = d['used_bytes']
@@ -220,6 +222,18 @@ def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None):
             'pct': pct,
             'status': status,
         })
+        monitored_names.add(d['server_name'])
+
+    # Add connections without monitoring data
+    for conn in connections:
+        if conn.name not in monitored_names:
+            rows.append({
+                'server_name': conn.name,
+                'used': '\u2014',
+                'total': '\u2014',
+                'pct': -1,
+                'status': 'no_data',
+            })
 
     rows.sort(key=lambda r: r['pct'], reverse=True)
 
@@ -246,15 +260,17 @@ def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None):
             </q-td>
             <q-td key="used" :props="props">{{ props.row.used }}</q-td>
             <q-td key="pct" :props="props">
-                <q-badge :color="
+                <q-badge v-if="props.row.status !== 'no_data'" :color="
                     props.row.status === 'critical' ? 'negative' :
                     props.row.status === 'warning' ? 'warning' :
                     'positive'
                 " :label="props.row.pct + '%'" />
+                <span v-else class="text-grey-5">&mdash;</span>
             </q-td>
             <q-td key="status" :props="props">
                 <q-icon v-if="props.row.status === 'critical'" name="error" color="negative" size="sm" />
                 <q-icon v-else-if="props.row.status === 'warning'" name="warning" color="warning" size="sm" />
+                <q-icon v-else-if="props.row.status === 'no_data'" name="hourglass_empty" color="grey-5" size="sm" />
                 <q-icon v-else name="check_circle" color="positive" size="sm" />
             </q-td>
             <q-td key="actions" :props="props">

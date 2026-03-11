@@ -10,15 +10,16 @@ PORT_DEFAULTS = {
 }
 
 
-def connection_dialog(on_save, existing: ConnectionConfig | None = None):
+def connection_dialog(on_save, existing: ConnectionConfig | None = None, title: str | None = None):
     """Open a dialog to create or edit a connection configuration.
 
     Args:
         on_save: Callback receiving the new ConnectionConfig.
         existing: If provided, pre-fill the form for editing.
+        title: Custom dialog title. Defaults to 'Edit'/'New' based on *existing*.
     """
     with ui.dialog() as dialog, ui.card().classes('w-96'):
-        title = 'Edit Connection' if existing else 'New Connection'
+        title = title or ('Edit Connection' if existing else 'New Connection')
         ui.label(title).classes('text-h6 q-mb-sm')
 
         name_input = ui.input(
