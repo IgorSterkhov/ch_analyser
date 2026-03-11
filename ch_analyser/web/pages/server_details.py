@@ -828,8 +828,18 @@ def _render_query_history_tab(service, full_table_name: str):
         _update_button_states()
         _refresh()
 
+    def select_all_users():
+        active_users.update(unique_users)
+        _update_button_states()
+        _refresh()
+
     def reset_kinds():
         active_kinds.clear()
+        _update_button_states()
+        _refresh()
+
+    def select_all_kinds():
+        active_kinds.update(unique_kinds)
         _update_button_states()
         _refresh()
 
@@ -899,6 +909,9 @@ def _render_query_history_tab(service, full_table_name: str):
         ui.button(icon='delete_sweep', on_click=reset_users).props(
             'flat dense size=sm color=grey-7'
         ).tooltip('Clear all')
+        ui.button(icon='select_all', on_click=select_all_users).props(
+            'flat dense size=sm color=grey-7'
+        ).tooltip('Show all')
         with ui.element('div').classes('flex flex-wrap gap-0') as user_btn_container:
             for u in unique_users:
                 btn = ui.button(u, on_click=lambda u=u: toggle_user(u))
@@ -910,6 +923,9 @@ def _render_query_history_tab(service, full_table_name: str):
         ui.button(icon='delete_sweep', on_click=reset_kinds).props(
             'flat dense size=sm color=grey-7'
         ).tooltip('Clear all')
+        ui.button(icon='select_all', on_click=select_all_kinds).props(
+            'flat dense size=sm color=grey-7'
+        ).tooltip('Show all')
         with ui.element('div').classes('flex flex-wrap gap-0') as kind_btn_container:
             for k in unique_kinds:
                 btn = ui.button(k, on_click=lambda k=k: toggle_kind(k))
@@ -1336,11 +1352,19 @@ def _load_users(ctx: ServerDetailsContext):
             _update_button_styles()
             _apply_filter()
 
+        def _select_all_users():
+            active_users.update(all_users)
+            _update_button_styles()
+            _apply_filter()
+
         with ui.row().classes('w-full items-center gap-1 no-wrap').style('margin-bottom: 2px'):
             ui.label('User:').classes('text-caption text-grey-7').style('line-height: 28px; white-space: nowrap')
             ui.button(icon='delete_sweep', on_click=_reset_users).props(
                 'flat dense size=sm color=grey-7'
             ).tooltip('Clear all')
+            ui.button(icon='select_all', on_click=_select_all_users).props(
+                'flat dense size=sm color=grey-7'
+            ).tooltip('Show all')
             with ui.element('div').classes('flex flex-wrap gap-0'):
                 for u in all_users:
                     btn = ui.button(u, on_click=lambda u=u: _toggle_user(u))
