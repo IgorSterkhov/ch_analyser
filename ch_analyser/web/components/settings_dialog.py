@@ -223,6 +223,8 @@ def _on_edit_conn(cfg, container, dlg, on_connections_changed):
     def save(new_cfg, old_name=cfg.name):
         try:
             state.conn_manager.update_connection(old_name, new_cfg)
+            if old_name != new_cfg.name and state.monitoring_store:
+                state.monitoring_store.rename_server(old_name, new_cfg.name)
             ui.notify(f'Updated "{new_cfg.name}"', type='positive')
             _build_connections_list(container, dlg, on_connections_changed)
             if on_connections_changed:

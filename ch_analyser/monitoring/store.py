@@ -196,6 +196,18 @@ class MonitoringStore:
 
             return result
 
+    # ── Rename ──
+
+    def rename_server(self, old_name: str, new_name: str):
+        """Rename server_name in all monitoring tables."""
+        with self._lock:
+            for table in ("server_disk_snapshots", "table_disk_snapshots"):
+                self._conn.execute(
+                    f"UPDATE {table} SET server_name = ? WHERE server_name = ?",
+                    [new_name, old_name],
+                )
+        logger.info("Renamed server in monitoring: %s -> %s", old_name, new_name)
+
     # ── Cleanup ──
 
     def cleanup_expired(self, retention_days: int = 365):
