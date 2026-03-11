@@ -68,8 +68,8 @@ def _build_dashboard(on_drill_down=None):
                 value=30,
                 label='Days',
             ).props('dense outlined').style('min-width: 100px')
-            ui.button('Show all', on_click=_show_all_servers).props('dense outlined size=sm no-caps')
-            ui.button('Hide all', on_click=_hide_all_servers).props('dense outlined size=sm no-caps')
+            ui.button('Show all', on_click=_show_all_servers).props('dense flat size=sm no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px')
+            ui.button('Hide all', on_click=_hide_all_servers).props('dense flat size=sm no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px')
 
     # Table + Chart row (aligned top edges)
     with ui.row().classes('w-full gap-4 items-start'):
@@ -164,8 +164,8 @@ def _build_dashboard(on_drill_down=None):
             ).props('dense outlined').style('min-width: 100px')
 
         with ui.row().classes('items-center gap-2 q-mb-xs').style('width: 58%; min-width: 400px'):
-            ui.button('Show all', on_click=_show_all_tables).props('dense outlined size=sm no-caps')
-            ui.button('Hide all', on_click=_hide_all_tables).props('dense outlined size=sm no-caps')
+            ui.button('Show all', on_click=_show_all_tables).props('dense flat size=sm no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px')
+            ui.button('Hide all', on_click=_hide_all_tables).props('dense flat size=sm no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px')
 
     # Table + Chart row
     tables_container = ui.column().classes('w-full')
