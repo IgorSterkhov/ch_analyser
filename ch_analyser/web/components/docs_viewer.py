@@ -75,7 +75,7 @@ def show_docs_dialog():
             # Content area — scrollable
             content_container = ui.element('div').classes(
                 'flex-grow q-pa-lg'
-            ).style('height: 100%; overflow-y: auto')
+            ).style('height: calc(100vh - 64px); overflow-y: auto')
 
         # Show first doc by default
         _show(USER_DOCS[0][1])
