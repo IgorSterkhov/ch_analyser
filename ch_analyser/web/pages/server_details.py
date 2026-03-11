@@ -29,6 +29,7 @@ class ServerDetailsContext:
     columns_panel: ui.column = None
     server_info_bar: ui.card = None
     right_drawer: object = None
+    drawer_title: ui.label = None
     text_logs_panel: ui.column = None
     users_panel: ui.column = None
     main_tabs_loaded: set = field(default_factory=set)
@@ -40,7 +41,7 @@ _connecting_name: str | None = None
 _suppress_right_drawer_hide: bool = False
 
 
-def build_server_details_view(parent, right_drawer, columns_panel) -> ServerDetailsContext:
+def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=None) -> ServerDetailsContext:
     """Build the 'by Server Details' view inside parent container.
 
     Returns a ServerDetailsContext with all panel references.
@@ -48,6 +49,7 @@ def build_server_details_view(parent, right_drawer, columns_panel) -> ServerDeta
     ctx = ServerDetailsContext()
     ctx.right_drawer = right_drawer
     ctx.columns_panel = columns_panel
+    ctx.drawer_title = drawer_title
 
     with parent:
         # Connection selector (dropdown)
@@ -459,6 +461,8 @@ def _load_columns(ctx: ServerDetailsContext, full_table_name: str):
     with ctx.columns_panel:
         ui.spinner('dots', size='lg').classes('self-center q-mt-md')
 
+    if ctx.drawer_title:
+        ctx.drawer_title.text = 'Table Details'
     safe_name = json.dumps(full_table_name)
     ui.run_javascript(f'window.selectedTableName = {safe_name}')
     ctx.right_drawer.set_value(True)
@@ -740,7 +744,8 @@ def _render_query_history_tab(service, full_table_name: str):
                 columns.insert(3, {'name': 'direct', 'label': 'Direct', 'field': 'direct', 'align': 'center', 'sortable': True})
 
             body_slot = r'''
-                <q-tr :props="props">
+                <q-tr :props="props" class="cursor-pointer"
+                       @click="$parent.$emit('show-query', props.row)">
                     <q-td key="event_time" :props="props">{{ props.row.event_time }}</q-td>
                     <q-td key="user" :props="props">{{ props.row.user }}</q-td>
                     <q-td key="query_kind" :props="props">{{ props.row.query_kind }}</q-td>'''
@@ -748,10 +753,7 @@ def _render_query_history_tab(service, full_table_name: str):
                 body_slot += r'''
                     <q-td key="direct" :props="props">{{ props.row.direct }}</q-td>'''
             body_slot += r'''
-                    <q-td key="query" :props="props">
-                        <q-btn flat dense size="sm" icon="visibility" color="primary"
-                               @click.stop="$parent.$emit('show-query', props.row)"
-                               class="q-mr-xs" />
+                    <q-td key="query" :props="props" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
                         {{ props.row.query_short }}
                     </q-td>
                 </q-tr>'''
@@ -1425,6 +1427,8 @@ def _load_user_detail(ctx: ServerDetailsContext, user_name: str):
     if not service:
         return
 
+    if ctx.drawer_title:
+        ctx.drawer_title.text = 'User queries'
     ctx.right_drawer.set_value(True)
 
     with ctx.columns_panel:
@@ -1652,14 +1656,18 @@ def _render_user_queries_grouped(service, user_name, status, kind):
 
 def _show_query_dialog(query: str, exception: str = ''):
     """Show a dialog with the full query text and optional exception."""
+    formatted = format_clickhouse_sql(query)
     with ui.dialog() as dlg, ui.card().classes('q-pa-md').style('min-width: 600px; max-width: 80vw'):
         ui.label('Query').classes('text-h6 q-mb-sm')
-        ui.code(query, language='sql').classes('w-full').style('max-height: 300px; overflow: auto')
+        ui.html(
+            f'<pre style="white-space: pre-wrap; word-break: break-all; max-height: 60vh; overflow: auto;">'
+            f'{html.escape(formatted)}</pre>'
+        )
         if exception:
             ui.label('Exception').classes('text-subtitle2 text-negative q-mt-md q-mb-xs')
             ui.code(exception).classes('w-full text-negative').style('max-height: 150px; overflow: auto')
         with ui.row().classes('w-full justify-end q-mt-md gap-2'):
-            copy_js = f'() => window.copyToClipboard({json.dumps(query)})'
+            copy_js = f'() => window.copyToClipboard({json.dumps(formatted)})'
             ui.button('Copy SQL', icon='content_copy').props('flat').on('click', js_handler=copy_js)
             ui.button('Close', on_click=dlg.close).props('flat')
     dlg.open()

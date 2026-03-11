@@ -32,7 +32,7 @@ def main_page():
     with ui.right_drawer(elevated=True, value=False).classes('q-pa-sm').props('overlay') as right_drawer:
         resize_handle = ui.element('div').classes('drawer-resize-handle')
         with ui.row().classes('items-center justify-between w-full q-mb-sm'):
-            ui.label('Table Details').classes('text-h6')
+            drawer_title = ui.label('Table Details').classes('text-h6')
             ui.button(icon='close', on_click=right_drawer.hide).props('flat dense')
         columns_panel = ui.column().classes('w-full')
         with columns_panel:
@@ -122,7 +122,7 @@ def main_page():
         # Server Details view (hidden by default)
         details_view = ui.column().classes('w-full')
         details_view.set_visibility(False)
-        ctx = build_server_details_view(details_view, right_drawer, columns_panel)
+        ctx = build_server_details_view(details_view, right_drawer, columns_panel, drawer_title)
 
     # Hide right drawer toggle initially (All Servers view)
     ui.run_javascript(
