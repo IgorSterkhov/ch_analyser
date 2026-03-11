@@ -61,21 +61,21 @@ def show_docs_dialog():
                 btn.update()
 
         # Body: sidebar + content — takes all remaining height
-        with ui.row().classes('w-full overflow-hidden').style(
-            'flex: 1 1 0; min-height: 0'
-        ):
-            # Sidebar
-            with ui.column().classes('q-pa-md gap-1').style('width: 240px; min-width: 240px'):
+        with ui.element('div').style('flex: 1 1 0; min-height: 0; position: relative'):
+            # Sidebar (absolute left)
+            with ui.column().classes('q-pa-md gap-1').style(
+                'position: absolute; left: 0; top: 0; bottom: 0; width: 240px; overflow-y: auto'
+            ):
                 for label, fname in USER_DOCS:
                     btn = ui.button(label, on_click=lambda f=fname: _show(f)).props(
                         'no-caps push color=grey-4 text-color=grey-8'
                     ).classes('w-full justify-start')
                     nav_buttons[fname] = btn
 
-            # Content area — scrollable
-            content_container = ui.element('div').classes(
-                'flex-grow q-pa-lg'
-            ).style('height: calc(100vh - 64px); overflow-y: auto')
+            # Content area (absolute right, scrollable)
+            content_container = ui.element('div').classes('q-pa-lg').style(
+                'position: absolute; left: 240px; top: 0; right: 0; bottom: 0; overflow-y: auto'
+            )
 
         # Show first doc by default
         _show(USER_DOCS[0][1])
