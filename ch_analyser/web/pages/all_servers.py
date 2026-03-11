@@ -71,10 +71,17 @@ def _build_dashboard(on_drill_down=None):
             ui.button('Show all', on_click=_show_all_servers).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px')
             ui.button('Hide all', on_click=_hide_all_servers).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px')
 
+    # Mutable ref for table_server_select (defined later in Block 2)
+    table_server_ref = [None]
+
+    def _on_show_tables(server_name):
+        if table_server_ref[0]:
+            table_server_ref[0].set_value(server_name)
+
     # Table + Chart row (aligned top edges)
     with ui.row().classes('w-full gap-4 items-start'):
         with ui.column().classes('q-pa-xs').style('width: 40%; min-width: 300px'):
-            server_tbl = _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down)
+            server_tbl = _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down, _on_show_tables)
 
         server_chart_container = ui.column().classes('q-pa-xs').style('width: 58%; min-width: 400px')
 
@@ -156,6 +163,7 @@ def _build_dashboard(on_drill_down=None):
                 value=server_names[0] if server_names else None,
                 label='Server',
             ).props('dense outlined').style('min-width: 200px')
+            table_server_ref[0] = table_server_select
 
             table_topn_select = ui.select(
                 options=[30, 50, 100],
@@ -227,7 +235,7 @@ def _build_dashboard(on_drill_down=None):
     _reload_tables()
 
 
-def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None):
+def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None, on_show_tables=None):
     """Render the server disk usage table. Returns ui.table or None."""
     data = store.get_server_disk_latest() if store else []
     connections = state.conn_manager.list_connections()
@@ -276,6 +284,7 @@ def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None):
         {'name': 'pct', 'label': '%', 'field': 'pct', 'align': 'right', 'sortable': True,
          ':sort': '(a, b) => a - b'},
         {'name': 'status', 'label': 'Status', 'field': 'status', 'align': 'center'},
+        {'name': 'tables', 'label': '', 'field': 'tables', 'align': 'center'},
         {'name': 'actions', 'label': '', 'field': 'actions', 'align': 'center'},
     ]
 
@@ -306,12 +315,21 @@ def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None):
                 <q-icon v-else-if="props.row.status === 'no_data'" name="hourglass_empty" color="grey-5" size="sm" />
                 <q-icon v-else name="check_circle" color="positive" size="sm" />
             </q-td>
+            <q-td key="tables" :props="props">
+                <q-btn flat dense size="sm" icon="table_chart" color="grey-7"
+                       @click.stop="$parent.$emit('show-tables', props.row)" />
+            </q-td>
             <q-td key="actions" :props="props">
                 <q-btn flat dense size="sm" icon="open_in_new" color="primary"
                        @click.stop="$parent.$emit('drill-down', props.row)" />
             </q-td>
         </q-tr>
     ''')
+
+    if on_show_tables:
+        def _on_show_tables(e):
+            on_show_tables(e.args['server_name'])
+        tbl.on('show-tables', _on_show_tables)
 
     if on_drill_down:
         def _on_drill(e):
