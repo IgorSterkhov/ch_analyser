@@ -35,6 +35,7 @@ class ServerDetailsContext:
     main_tabs_loaded: set = field(default_factory=set)
     connection_select: ui.select = None
     _tables_widget: object = None
+    active_main_tab: str = 'Tables'
 
 
 # ── Module-level state for connection flow ──
@@ -99,11 +100,9 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
                 with ctx.text_logs_panel:
                     ui.label('Select a connection above.').classes('text-grey-7')
 
-        _active_main_tab = ['Tables']
-
         def _on_main_tab_change(e):
             tab = e.value
-            _active_main_tab[0] = tab
+            ctx.active_main_tab = tab
             if tab == 'Text Logs':
                 if ctx.right_drawer and hasattr(ctx.right_drawer, 'value') and ctx.right_drawer.value:
                     ctx.right_drawer.hide()
@@ -205,14 +204,21 @@ async def _on_connect_async(cfg, ctx: ServerDetailsContext):
         _clear_columns(ctx)
         ctx.main_tabs_loaded.clear()
 
-        if ctx.text_logs_panel:
-            ctx.text_logs_panel.clear()
-            with ctx.text_logs_panel:
-                ui.label('Switch to Text Logs tab to load.').classes('text-grey-7')
-        if ctx.users_panel:
+        if ctx.active_main_tab == 'Users':
+            ctx.main_tabs_loaded.add('Users')
+            await _load_users(ctx)
+        elif ctx.users_panel:
             ctx.users_panel.clear()
             with ctx.users_panel:
                 ui.label('Switch to Users tab to load.').classes('text-grey-7')
+
+        if ctx.active_main_tab == 'Text Logs':
+            ctx.main_tabs_loaded.add('Text Logs')
+            await _load_text_logs(ctx)
+        elif ctx.text_logs_panel:
+            ctx.text_logs_panel.clear()
+            with ctx.text_logs_panel:
+                ui.label('Switch to Text Logs tab to load.').classes('text-grey-7')
 
     except Exception as ex:
         _connecting_name = None
@@ -422,7 +428,7 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
                 _current_detail_table[0] = None
             else:
                 _current_detail_table[0] = table_name
-                _load_columns(ctx, table_name)
+                background_tasks.create(_load_columns(ctx, table_name))
 
         tbl.on('row-click', on_row_click)
 
@@ -463,7 +469,7 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
 
 # ── Columns (right drawer) ──
 
-def _load_columns(ctx: ServerDetailsContext, full_table_name: str):
+async def _load_columns(ctx: ServerDetailsContext, full_table_name: str):
     ctx.columns_panel.clear()
     service = state.service
     if not service:
@@ -489,6 +495,25 @@ def _load_columns(ctx: ServerDetailsContext, full_table_name: str):
         }, 150);
     ''')
 
+    try:
+        disks = await run.io_bound(lambda: service.get_disk_info())
+        total_disk_bytes = sum(d['used_bytes'] for d in disks) if disks else 0
+    except Exception:
+        total_disk_bytes = 0
+
+    try:
+        columns_data = await run.io_bound(lambda: service.get_columns(full_table_name))
+    except Exception as ex:
+        ctx.columns_panel.clear()
+        with ctx.columns_panel:
+            ui.notify(f'Failed to load columns: {ex}', type='negative')
+        return
+
+    try:
+        col_refs = await run.io_bound(lambda: service.get_column_references(full_table_name))
+    except Exception:
+        col_refs = {}
+
     ctx.columns_panel.clear()
     with ctx.columns_panel:
         ui.label(full_table_name).classes(
@@ -502,34 +527,30 @@ def _load_columns(ctx: ServerDetailsContext, full_table_name: str):
 
         loaded_tabs = set()
 
-        try:
-            disks = service.get_disk_info()
-            total_disk_bytes = sum(d['used_bytes'] for d in disks) if disks else 0
-        except Exception:
-            total_disk_bytes = 0
-
         with ui.tab_panels(tabs, value=columns_tab).classes('w-full q-pt-none') as tab_panels:
             with ui.tab_panel(columns_tab).classes('q-pa-xs'):
-                _render_columns_tab(service, full_table_name, total_disk_bytes)
+                _render_columns_tab(columns_data, col_refs, full_table_name, total_disk_bytes)
                 loaded_tabs.add('Columns')
             with ui.tab_panel(history_tab).classes('q-pa-xs') as history_panel:
                 pass
             with ui.tab_panel(flow_tab).classes('q-pa-xs') as flow_panel:
                 pass
 
-        def _on_tab_change(e):
+        async def _on_tab_change(e):
             name = e.value
             if name in loaded_tabs:
                 return
             loaded_tabs.add(name)
             if name == 'Query History':
                 with history_panel:
-                    _render_query_history_tab(service, full_table_name)
+                    ui.spinner('dots', size='lg').classes('self-center q-mt-md')
+                await _render_query_history_tab_async(service, full_table_name, history_panel)
             elif name == 'Flow':
                 with flow_panel:
-                    _render_flow_tab(service, full_table_name)
+                    ui.spinner('dots', size='lg').classes('self-center q-mt-md')
+                await _render_flow_tab_async(service, full_table_name, flow_panel)
 
-        tabs.on_value_change(_on_tab_change)
+        tabs.on_value_change(lambda e: background_tasks.create(_on_tab_change(e)))
 
 
 def _clear_columns(ctx: ServerDetailsContext):
@@ -540,21 +561,10 @@ def _clear_columns(ctx: ServerDetailsContext):
         ui.label('Select a table.').classes('text-grey-7')
 
 
-def _render_columns_tab(service, full_table_name: str, total_disk_bytes: int = 0):
-    try:
-        data = service.get_columns(full_table_name)
-    except Exception as ex:
-        ui.notify(f'Failed to load columns: {ex}', type='negative')
-        return
-
+def _render_columns_tab(data, col_refs, full_table_name: str, total_disk_bytes: int = 0):
     if not data:
         ui.label('No columns found.').classes('text-grey-7')
         return
-
-    try:
-        col_refs = service.get_column_references(full_table_name)
-    except Exception:
-        col_refs = {}
 
     table_total_bytes = sum(c.get('size_bytes', 0) for c in data)
 
@@ -639,13 +649,21 @@ def _render_columns_tab(service, full_table_name: str, total_disk_bytes: int = 0
 
 # ── Query History ──
 
-def _render_query_history_tab(service, full_table_name: str):
+async def _render_query_history_tab_async(service, full_table_name: str, panel):
     try:
-        filters = service.get_query_history_filters(full_table_name, log_days=state.query_log_days)
+        filters = await run.io_bound(
+            lambda: service.get_query_history_filters(full_table_name, log_days=state.query_log_days))
     except Exception as ex:
-        ui.notify(f'Failed to load query history filters: {ex}', type='negative')
+        panel.clear()
+        with panel:
+            ui.notify(f'Failed to load query history filters: {ex}', type='negative')
         return
+    panel.clear()
+    with panel:
+        _render_query_history_tab(filters, service, full_table_name)
 
+
+def _render_query_history_tab(filters, service, full_table_name: str):
     unique_users = filters['users']
     unique_kinds = filters['kinds']
     counts = filters['counts']
@@ -968,7 +986,22 @@ def _render_query_history_tab(service, full_table_name: str):
 
 # ── Flow ──
 
-def _render_flow_tab(service, full_table_name: str):
+async def _render_flow_tab_async(service, full_table_name: str, panel):
+    try:
+        mv_flow = await run.io_bound(lambda: service.get_mv_flow(full_table_name))
+    except Exception:
+        mv_flow = {'nodes': [], 'edges': []}
+    try:
+        query_flow = await run.io_bound(
+            lambda: service.get_query_flow(full_table_name, log_days=state.query_log_days))
+    except Exception:
+        query_flow = {'nodes': [], 'edges': []}
+    panel.clear()
+    with panel:
+        _render_flow_tab(mv_flow, query_flow, full_table_name)
+
+
+def _render_flow_tab(mv_flow, query_flow, full_table_name: str):
     with ui.tabs().classes('w-full').props('dense') as sub_tabs:
         mv_tab = ui.tab('MV Flow')
         query_tab = ui.tab('Query Flow')
@@ -976,40 +1009,20 @@ def _render_flow_tab(service, full_table_name: str):
 
     with ui.tab_panels(sub_tabs, value=mv_tab).classes('w-full'):
         with ui.tab_panel(mv_tab):
-            try:
-                flow = service.get_mv_flow(full_table_name)
-            except Exception as ex:
-                ui.notify(f'Failed to load MV flow: {ex}', type='negative')
-                flow = {'nodes': [], 'edges': []}
-
-            mermaid_text = flow_to_mermaid(flow, highlight_table=full_table_name)
+            mermaid_text = flow_to_mermaid(mv_flow, highlight_table=full_table_name)
             if mermaid_text:
                 render_mermaid_scrollable(mermaid_text)
             else:
                 ui.label('No materialized view flow found.').classes('text-grey-7')
 
         with ui.tab_panel(query_tab):
-            try:
-                flow = service.get_query_flow(full_table_name, log_days=state.query_log_days)
-            except Exception as ex:
-                ui.notify(f'Failed to load query flow: {ex}', type='negative')
-                flow = {'nodes': [], 'edges': []}
-
-            mermaid_text = flow_to_mermaid(flow, highlight_table=full_table_name)
+            mermaid_text = flow_to_mermaid(query_flow, highlight_table=full_table_name)
             if mermaid_text:
                 render_mermaid_scrollable(mermaid_text)
             else:
                 ui.label('No query-based data flow found.').classes('text-grey-7')
 
         with ui.tab_panel(full_tab):
-            try:
-                mv_flow = service.get_mv_flow(full_table_name)
-                query_flow = service.get_query_flow(full_table_name, log_days=state.query_log_days)
-            except Exception as ex:
-                ui.notify(f'Failed to load flow: {ex}', type='negative')
-                mv_flow = {'nodes': [], 'edges': []}
-                query_flow = {'nodes': [], 'edges': []}
-
             all_nodes = {n['id']: n for n in mv_flow['nodes']}
             for n in query_flow['nodes']:
                 if n['id'] not in all_nodes:
