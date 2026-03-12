@@ -1239,7 +1239,7 @@ def _load_text_log_detail(detail_panel, thread_name: str, level: int | None = No
                         <q-btn flat dense round size="sm" icon="visibility" color="primary"
                                @click.stop="$parent.$emit('show-message', props.row)"
                                class="q-mr-xs">
-                            <q-tooltip>View full message</q-tooltip>
+                            <q-tooltip anchor="top middle" self="bottom middle">View full message</q-tooltip>
                         </q-btn>
                         <span class="ellipsis" style="max-width: 550px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                             {{ props.row.message }}
@@ -1603,10 +1603,10 @@ def _render_user_queries_all(service, user_name, status, kind):
             <q-td key="duration_ms" :props="props">{{ props.row.duration_ms }}</q-td>
             <q-td key="status" :props="props">
                 <q-icon v-if="props.row.status === 'error'" name="cancel" color="negative" size="xs">
-                    <q-tooltip>Query failed</q-tooltip>
+                    <q-tooltip anchor="top middle" self="bottom middle">Query failed</q-tooltip>
                 </q-icon>
                 <q-icon v-else name="check_circle" color="positive" size="xs">
-                    <q-tooltip>Query succeeded</q-tooltip>
+                    <q-tooltip anchor="top middle" self="bottom middle">Query succeeded</q-tooltip>
                 </q-icon>
             </q-td>
             <q-td key="query_short" :props="props" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">

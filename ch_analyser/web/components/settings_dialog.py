@@ -191,15 +191,15 @@ def _build_connections_list(container, dlg, on_connections_changed=None):
                 <q-td key="actions" :props="props">
                     <q-btn flat dense size="sm" icon="edit"
                            @click.stop="$parent.$emit('edit', props.row)">
-                        <q-tooltip>Edit connection</q-tooltip>
+                        <q-tooltip anchor="top middle" self="bottom middle">Edit connection</q-tooltip>
                     </q-btn>
                     <q-btn flat dense size="sm" icon="content_copy"
                            @click.stop="$parent.$emit('copy', props.row)">
-                        <q-tooltip>Copy connection</q-tooltip>
+                        <q-tooltip anchor="top middle" self="bottom middle">Copy connection</q-tooltip>
                     </q-btn>
                     <q-btn flat dense size="sm" icon="delete" color="negative"
                            @click.stop="$parent.$emit('delete', props.row)">
-                        <q-tooltip>Delete connection</q-tooltip>
+                        <q-tooltip anchor="top middle" self="bottom middle">Delete connection</q-tooltip>
                     </q-btn>
                 </q-td>
             </q-tr>

@@ -345,13 +345,13 @@ def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None, on_s
             <q-td key="tables" :props="props">
                 <q-btn flat dense size="sm" icon="table_chart" color="grey-7"
                        @click.stop="$parent.$emit('show-tables', props.row)">
-                    <q-tooltip>Show tables</q-tooltip>
+                    <q-tooltip anchor="top middle" self="bottom middle">Show tables</q-tooltip>
                 </q-btn>
             </q-td>
             <q-td key="actions" :props="props">
                 <q-btn flat dense size="sm" icon="open_in_new" color="primary"
                        @click.stop="$parent.$emit('drill-down', props.row)">
-                    <q-tooltip>Open server details</q-tooltip>
+                    <q-tooltip anchor="top middle" self="bottom middle">Open server details</q-tooltip>
                 </q-btn>
             </q-td>
         </q-tr>

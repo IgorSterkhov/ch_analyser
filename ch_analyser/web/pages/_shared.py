@@ -4,6 +4,17 @@ import json
 import re
 
 from nicegui import ui
+from nicegui.element import Element as _NiceGuiElement
+
+
+def _tooltip_above(self, text: str):
+    """Tooltip appears above the element instead of below."""
+    with self:
+        ui.tooltip(text).props('anchor="top middle" self="bottom middle"')
+    return self
+
+
+_NiceGuiElement.tooltip = _tooltip_above
 
 # Clipboard JS fallback for non-HTTPS contexts (remote servers)
 CLIPBOARD_JS = '''
@@ -330,7 +341,7 @@ SHARED_CSS = '''
 HEADER_CELL_TOOLTIP_SLOT = r'''
 <q-th :props="props">
     {{ props.col.label }}
-    <q-tooltip v-if="props.col.tooltip">{{ props.col.tooltip }}</q-tooltip>
+    <q-tooltip v-if="props.col.tooltip" anchor="top middle" self="bottom middle">{{ props.col.tooltip }}</q-tooltip>
 </q-th>
 '''
 
