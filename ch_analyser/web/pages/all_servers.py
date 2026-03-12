@@ -419,8 +419,7 @@ def _build_server_disk_chart(store, warn_pct, crit_pct, days=30):
             'containLabel': True,
         },
         'xAxis': {
-            'type': 'category',
-            'boundaryGap': False,
+            'type': 'time',
         },
         'yAxis': {
             'type': 'value',
@@ -557,8 +556,7 @@ def _build_table_disk_chart(store, server_name: str, top_n: int):
             'containLabel': True,
         },
         'xAxis': {
-            'type': 'category',
-            'boundaryGap': False,
+            'type': 'time',
         },
         'yAxis': {
             'type': 'value',
