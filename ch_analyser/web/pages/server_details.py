@@ -365,18 +365,73 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
                 'last_insert': t['last_insert'],
             })
 
+        # Schema filter state
+        all_schemas = sorted(set(r['name'].split('.')[0] for r in rows))
+        active_schemas = set(all_schemas)
+        schema_buttons: dict[str, ui.button] = {}
+        all_rows = list(rows)
+
         filter_input = ui.input(placeholder='Filter by table name...').props(
             'dense clearable'
         ).classes('q-mb-sm').style('max-width: 400px')
 
         tbl = ui.table(
             columns=columns,
-            rows=rows,
+            rows=all_rows,
             row_key='name',
             pagination={'rowsPerPage': 20, 'sortBy': 'size', 'descending': True},
         ).classes('w-full sticky-table')
         ctx._tables_widget = tbl
         tbl.bind_filter_from(filter_input, 'value')
+
+        def _update_schema_styles():
+            for s, btn in schema_buttons.items():
+                if s in active_schemas:
+                    btn.props('push color=primary text-color=white no-caps size=sm')
+                else:
+                    btn.props('push color=grey-4 text-color=grey-8 no-caps size=sm')
+                btn.update()
+
+        def _apply_schema_filter():
+            if len(active_schemas) == len(all_schemas):
+                tbl.rows = all_rows
+            else:
+                tbl.rows = [r for r in all_rows if r['name'].split('.')[0] in active_schemas]
+            tbl.update()
+
+        def _toggle_schema(schema):
+            if schema in active_schemas:
+                if len(active_schemas) > 1:
+                    active_schemas.discard(schema)
+            else:
+                active_schemas.add(schema)
+            _update_schema_styles()
+            _apply_schema_filter()
+
+        def _reset_schemas():
+            active_schemas.clear()
+            _update_schema_styles()
+            _apply_schema_filter()
+
+        def _select_all_schemas():
+            active_schemas.update(all_schemas)
+            _update_schema_styles()
+            _apply_schema_filter()
+
+        with ui.row().classes('w-full items-center gap-1 no-wrap').style('margin-bottom: 2px'):
+            ui.label('Schema:').classes('text-caption text-grey-7').style(
+                'line-height: 28px; white-space: nowrap')
+            ui.button(icon='delete_sweep', on_click=_reset_schemas).props(
+                'flat dense size=sm color=grey-7'
+            ).tooltip('Clear all')
+            ui.button(icon='select_all', on_click=_select_all_schemas).props(
+                'flat dense size=sm color=grey-7'
+            ).tooltip('Show all')
+            with ui.element('div').classes('flex flex-wrap gap-0'):
+                for s in all_schemas:
+                    btn = ui.button(s, on_click=lambda s=s: _toggle_schema(s))
+                    btn.props('push color=primary text-color=white no-caps size=sm')
+                    schema_buttons[s] = btn
         ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
         tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)
