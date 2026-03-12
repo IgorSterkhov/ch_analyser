@@ -129,6 +129,42 @@ window.mermaidZoomOut = function() {
     window.applyMermaidZoom();
 }
 
+window.mermaidWheel = function(e) {
+    if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) { window.mermaidZoomIn(); }
+        else { window.mermaidZoomOut(); }
+    }
+}
+
+window.initMermaidDrag = function() {
+    document.querySelectorAll('.mermaid-scroll').forEach(function(sc) {
+        if (sc._dragInit) return;
+        sc._dragInit = true;
+        var dragging = false, startX, startY, scrollL, scrollT;
+        sc.addEventListener('mousedown', function(e) {
+            if (e.button !== 0) return;
+            dragging = true;
+            startX = e.clientX; startY = e.clientY;
+            scrollL = sc.scrollLeft; scrollT = sc.scrollTop;
+            sc.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', function(e) {
+            if (!dragging) return;
+            sc.scrollLeft = scrollL - (e.clientX - startX);
+            sc.scrollTop = scrollT - (e.clientY - startY);
+        });
+        document.addEventListener('mouseup', function() {
+            if (!dragging) return;
+            dragging = false;
+            sc.style.cursor = 'grab';
+        });
+        sc.style.cursor = 'grab';
+        sc.addEventListener('wheel', window.mermaidWheel, {passive: false});
+    });
+}
+
 // Fullscreen diagram zoom (separate from panel zoom)
 window.mermaidFsZoom = 1.0;
 
@@ -468,6 +504,25 @@ def render_mermaid_scrollable(mermaid_text: str):
                       on_click=lambda t=mermaid_text: show_fullscreen_mermaid(t)).props(
                 'flat dense size=sm'
             ).classes('mermaid-zoom-btn q-ml-xs').tooltip('Fullscreen')
-        with ui.element('div').classes('w-full').style('overflow: auto; max-height: 60vh'):
+
+            def _show_flow_help():
+                with ui.dialog() as help_dlg, ui.card().classes('q-pa-md').style('max-width: 420px'):
+                    ui.label('Diagram Help').classes('text-h6 q-mb-sm')
+                    ui.html('''
+                        <ul style="padding-left: 18px; margin: 0">
+                            <li><b>Drag</b> — hold left mouse button to pan</li>
+                            <li><b>Zoom</b> — Ctrl + mouse wheel</li>
+                            <li><b>Fullscreen</b> — click fullscreen button</li>
+                            <li><b>Zoom buttons</b> — +/− to zoom in/out</li>
+                        </ul>
+                    ''')
+                    with ui.row().classes('w-full justify-end q-mt-md'):
+                        ui.button('Close', on_click=help_dlg.close).props('flat')
+                help_dlg.open()
+
+            ui.button(icon='help_outline', on_click=_show_flow_help).props(
+                'flat dense size=sm'
+            ).classes('mermaid-zoom-btn').tooltip('Help')
+        with ui.element('div').classes('w-full mermaid-scroll').style('overflow: auto; max-height: 60vh'):
             ui.mermaid(mermaid_text).classes('mermaid-flow')
-    ui.timer(0.3, lambda: ui.run_javascript('window.applyMermaidZoom()'), once=True)
+    ui.timer(0.3, lambda: ui.run_javascript('window.applyMermaidZoom(); window.initMermaidDrag()'), once=True)
