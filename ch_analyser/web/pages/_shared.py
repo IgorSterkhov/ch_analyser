@@ -197,6 +197,13 @@ window.initMermaidFsDrag = function() {
 SHARED_CSS = '''
     .q-table__middle {
         max-height: none !important;
+        overflow: visible !important;
+    }
+    .q-tab-panels {
+        overflow: visible !important;
+    }
+    .q-tab-panel {
+        overflow: visible !important;
     }
     .table-row-active {
         background-color: #1976d2 !important;
