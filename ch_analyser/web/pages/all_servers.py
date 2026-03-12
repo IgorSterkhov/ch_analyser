@@ -93,15 +93,13 @@ def _build_dashboard(on_drill_down=None):
             ui.button('Show all', on_click=_show_all_servers).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px')
             ui.button('Hide all', on_click=_hide_all_servers).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px')
 
-    # Mutable refs for Block 2 elements (defined later)
+    # Mutable ref for table_server_select (defined later in Block 2)
     table_server_ref = [None]
-    tables_section_ref = [None]
 
     def _on_show_tables(server_name):
         if table_server_ref[0]:
             table_server_ref[0].set_value(server_name)
-        if tables_section_ref[0]:
-            tables_section_ref[0].scroll_into_view()
+        ui.run_javascript('document.getElementById("tables-section").scrollIntoView({behavior: "smooth"})')
 
     # Table + Chart row (aligned top edges)
     with ui.row().classes('w-full gap-4 items-start'):
@@ -163,7 +161,7 @@ def _build_dashboard(on_drill_down=None):
     ui.separator().classes('q-my-md')
 
     # ── Block 2: Disk usage by tables ──
-    tables_section_ref[0] = ui.label('Disk usage by tables').classes('text-h6 q-mb-sm')
+    ui.label('Disk usage by tables').classes('text-h6 q-mb-sm').props('id="tables-section"')
 
     connections = state.conn_manager.list_connections()
     server_names = [c.name for c in connections]
