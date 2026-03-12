@@ -370,19 +370,7 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
         active_schemas = set(all_schemas)
         schema_buttons: dict[str, ui.button] = {}
         all_rows = list(rows)
-
-        filter_input = ui.input(placeholder='Filter by table name...').props(
-            'dense clearable'
-        ).classes('q-mb-sm').style('max-width: 400px')
-
-        tbl = ui.table(
-            columns=columns,
-            rows=all_rows,
-            row_key='name',
-            pagination={'rowsPerPage': 20, 'sortBy': 'size', 'descending': True},
-        ).classes('w-full sticky-table')
-        ctx._tables_widget = tbl
-        tbl.bind_filter_from(filter_input, 'value')
+        tbl_ref: list[ui.table | None] = [None]
 
         def _update_schema_styles():
             for s, btn in schema_buttons.items():
@@ -393,6 +381,9 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
                 btn.update()
 
         def _apply_schema_filter():
+            tbl = tbl_ref[0]
+            if not tbl:
+                return
             if len(active_schemas) == len(all_schemas):
                 tbl.rows = all_rows
             else:
@@ -432,6 +423,20 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
                     btn = ui.button(s, on_click=lambda s=s: _toggle_schema(s))
                     btn.props('push color=primary text-color=white no-caps size=sm')
                     schema_buttons[s] = btn
+
+        filter_input = ui.input(placeholder='Filter by table name...').props(
+            'dense clearable'
+        ).classes('q-mb-sm').style('max-width: 400px')
+
+        tbl = ui.table(
+            columns=columns,
+            rows=all_rows,
+            row_key='name',
+            pagination={'rowsPerPage': 20, 'sortBy': 'size', 'descending': True},
+        ).classes('w-full sticky-table')
+        tbl_ref[0] = tbl
+        ctx._tables_widget = tbl
+        tbl.bind_filter_from(filter_input, 'value')
         ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
         tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)
