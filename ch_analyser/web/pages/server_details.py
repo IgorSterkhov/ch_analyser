@@ -34,6 +34,7 @@ class ServerDetailsContext:
     users_panel: ui.column = None
     main_tabs_loaded: set = field(default_factory=set)
     connection_select: ui.select = None
+    _tables_widget: object = None
 
 
 # ── Module-level state for connection flow ──
@@ -115,10 +116,10 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
                 )
             if tab == 'Users' and 'Users' not in ctx.main_tabs_loaded and state.service:
                 ctx.main_tabs_loaded.add('Users')
-                _load_users(ctx)
+                background_tasks.create(_load_users(ctx))
             if tab == 'Text Logs' and 'Text Logs' not in ctx.main_tabs_loaded and state.service:
                 ctx.main_tabs_loaded.add('Text Logs')
-                _load_text_logs(ctx)
+                background_tasks.create(_load_text_logs(ctx))
             ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
         main_tabs.on_value_change(_on_main_tab_change)
@@ -126,7 +127,7 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
     # If already connected, show data
     if state.service:
         _build_server_info_bar(ctx)
-        _load_tables(ctx)
+        background_tasks.create(_load_tables(ctx))
 
     return ctx
 
@@ -156,6 +157,8 @@ def _on_connect(cfg, ctx: ServerDetailsContext):
         return
     _connecting_name = cfg.name
     state.active_connection_name = None
+    if ctx._tables_widget:
+        ctx._tables_widget.props(add='loading')
     background_tasks.create(_on_connect_async(cfg, ctx))
 
 
@@ -264,9 +267,9 @@ def _render_server_info_bar(ctx: ServerDetailsContext, disks):
 
                 def _on_days_change(e, c=ctx):
                     state.query_log_days = e.value
-                    _load_tables(c)
+                    background_tasks.create(_load_tables(c))
                     if 'Users' in c.main_tabs_loaded:
-                        _load_users(c)
+                        background_tasks.create(_load_users(c))
 
                 ui.select(
                     options={7: '7d', 30: '30d', 90: '90d', 365: '1y'},
@@ -277,19 +280,23 @@ def _render_server_info_bar(ctx: ServerDetailsContext, disks):
 
 # ── Tables ──
 
-def _load_tables(ctx: ServerDetailsContext):
-    ctx.tables_panel.clear()
+async def _load_tables(ctx: ServerDetailsContext):
     service = state.service
     if not service:
+        ctx.tables_panel.clear()
         with ctx.tables_panel:
             ui.label('Select a connection.').classes('text-grey-7')
         return
 
-    with ctx.tables_panel:
-        ui.spinner('dots', size='lg').classes('self-center q-mt-md')
+    if ctx._tables_widget:
+        ctx._tables_widget.props(add='loading')
+    else:
+        ctx.tables_panel.clear()
+        with ctx.tables_panel:
+            ui.spinner('dots', size='lg').classes('self-center q-mt-md')
 
     try:
-        data = service.get_tables(log_days=state.query_log_days)
+        data = await run.io_bound(lambda: service.get_tables(log_days=state.query_log_days))
     except Exception as ex:
         ctx.tables_panel.clear()
         with ctx.tables_panel:
@@ -297,12 +304,12 @@ def _load_tables(ctx: ServerDetailsContext):
         return
 
     try:
-        refs = service.get_table_references()
+        refs = await run.io_bound(lambda: service.get_table_references())
     except Exception:
         refs = {}
 
     try:
-        disks = service.get_disk_info()
+        disks = await run.io_bound(lambda: service.get_disk_info())
         total_disk_bytes = sum(d['used_bytes'] for d in disks) if disks else 0
     except Exception:
         total_disk_bytes = 0
@@ -362,6 +369,7 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
             row_key='name',
             pagination={'rowsPerPage': 20, 'sortBy': 'size', 'descending': True},
         ).classes('w-full sticky-table')
+        ctx._tables_widget = tbl
         tbl.bind_filter_from(filter_input, 'value')
         ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
@@ -444,7 +452,8 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
             sql_dlg.open()
 
         with ui.row().classes('q-mt-sm gap-2'):
-            ui.button('Refresh', icon='refresh', on_click=lambda: _load_tables(ctx)).props(
+            ui.button('Refresh', icon='refresh',
+                      on_click=lambda: background_tasks.create(_load_tables(ctx))).props(
                 'flat dense color=primary'
             )
             ui.button(icon='code', on_click=_show_tables_sql).props(
@@ -1024,7 +1033,7 @@ def _render_flow_tab(service, full_table_name: str):
 
 # ── Text Logs ──
 
-def _load_text_logs(ctx: ServerDetailsContext):
+async def _load_text_logs(ctx: ServerDetailsContext):
     ctx.text_logs_panel.clear()
     service = state.service
     if not service:
@@ -1036,7 +1045,7 @@ def _load_text_logs(ctx: ServerDetailsContext):
         ui.spinner('dots', size='lg').classes('self-center q-mt-md')
 
     try:
-        data = service.get_text_log_summary()
+        data = await run.io_bound(lambda: service.get_text_log_summary())
     except Exception as ex:
         ctx.text_logs_panel.clear()
         with ctx.text_logs_panel:
@@ -1052,7 +1061,8 @@ def _load_text_logs(ctx: ServerDetailsContext):
         with ui.splitter(value=100).classes('w-full') as splitter:
             with splitter.before:
                 ui.button('Refresh', icon='refresh',
-                          on_click=lambda: _load_text_logs(ctx)).props('flat dense color=primary')
+                          on_click=lambda: background_tasks.create(
+                              _load_text_logs(ctx))).props('flat dense color=primary')
 
                 columns = [
                     {'name': 'thread_name', 'label': 'Thread', 'field': 'thread_name', 'align': 'left', 'sortable': True},
@@ -1262,7 +1272,7 @@ def _load_text_log_detail(detail_panel, thread_name: str, level: int | None = No
 
 # ── Users ──
 
-def _load_users(ctx: ServerDetailsContext):
+async def _load_users(ctx: ServerDetailsContext):
     ctx.users_panel.clear()
     service = state.service
     if not service:
@@ -1274,7 +1284,7 @@ def _load_users(ctx: ServerDetailsContext):
         ui.spinner('dots', size='lg').classes('self-center q-mt-md')
 
     try:
-        data = service.get_user_stats(log_days=state.query_log_days)
+        data = await run.io_bound(lambda: service.get_user_stats(log_days=state.query_log_days))
     except Exception as ex:
         ctx.users_panel.clear()
         with ctx.users_panel:
@@ -1382,7 +1392,8 @@ def _load_users(ctx: ServerDetailsContext):
                     user_buttons[u] = btn
 
         ui.button('Refresh', icon='refresh',
-                  on_click=lambda: _load_users(ctx)).props('flat dense color=primary')
+                  on_click=lambda: background_tasks.create(
+                      _load_users(ctx))).props('flat dense color=primary')
 
         tbl = ui.table(
             columns=columns,
