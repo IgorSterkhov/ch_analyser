@@ -11,6 +11,21 @@ EXCLUDED_DATABASES = ("system", "INFORMATION_SCHEMA", "information_schema",
 QUERY_LOG_DAYS_DEFAULT = 30
 
 
+def _bfs(graph: dict[str, set[str]], start: str) -> set[str]:
+    """Breadth-first search returning all reachable nodes from start."""
+    visited: set[str] = set()
+    queue = [start]
+    while queue:
+        node = queue.pop(0)
+        if node in visited:
+            continue
+        visited.add(node)
+        for neighbor in graph.get(node, []):
+            if neighbor not in visited:
+                queue.append(neighbor)
+    return visited
+
+
 class AnalysisService:
     def __init__(self, client: CHClient):
         self._client = client
@@ -577,19 +592,6 @@ class AnalysisService:
         if full_table_name not in forward and full_table_name not in backward:
             return {'nodes': [], 'edges': []}
 
-        def _bfs(graph: dict[str, set[str]], start: str) -> set[str]:
-            visited: set[str] = set()
-            queue = [start]
-            while queue:
-                node = queue.pop(0)
-                if node in visited:
-                    continue
-                visited.add(node)
-                for neighbor in graph.get(node, []):
-                    if neighbor not in visited:
-                        queue.append(neighbor)
-            return visited
-
         # Forward BFS (downstream) + Backward BFS (upstream)
         visited = _bfs(forward, full_table_name) | _bfs(backward, full_table_name)
 
@@ -634,8 +636,20 @@ class AnalysisService:
                         all_tables.add(t)
                         all_tables.add(target)
 
-        nodes = [{'id': t, 'type': 'table'} for t in all_tables]
-        edges = [{'from': s, 'to': d} for s, d in edges_set]
+        # BFS filtering: keep only tables in the vertical chain of full_table_name
+        forward: dict[str, set[str]] = {}
+        backward: dict[str, set[str]] = {}
+        for src, dst in edges_set:
+            forward.setdefault(src, set()).add(dst)
+            backward.setdefault(dst, set()).add(src)
+
+        if full_table_name not in forward and full_table_name not in backward:
+            return {'nodes': [], 'edges': []}
+
+        visited = _bfs(forward, full_table_name) | _bfs(backward, full_table_name)
+
+        nodes = [{'id': t, 'type': 'table'} for t in visited]
+        edges = [{'from': s, 'to': d} for s, d in edges_set if s in visited and d in visited]
         return {'nodes': nodes, 'edges': edges}
 
     # ── Text Log analysis ───────────────────────────────────────────
