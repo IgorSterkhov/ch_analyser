@@ -3,7 +3,7 @@
 import json
 from datetime import datetime
 
-from nicegui import ui
+from nicegui import app, ui
 
 import ch_analyser.web.state as state
 from ch_analyser.web.components.settings_dialog import get_admin_settings
@@ -24,6 +24,28 @@ def _format_bytes(b: int) -> str:
             return f'{b:.1f} {unit}'
         b /= 1024
     return f'{b:.1f} PiB'
+
+
+def _resizable_chart_wrapper(storage_key: str, default_height: int = 350):
+    """Create a resizable wrapper div for a chart. Returns the wrapper element as context manager."""
+    height = app.storage.user.get(storage_key, default_height)
+    wrapper = ui.element('div').style(
+        f'height: {height}px; position: relative; width: 100%'
+    )
+    dom_id = f'chart-resize-{storage_key}'
+    wrapper.props(f'id="{dom_id}"')
+
+    async def _save_height(e):
+        try:
+            h = await ui.run_javascript(f'document.getElementById("{dom_id}").offsetHeight')
+            if h and isinstance(h, (int, float)) and h >= 200:
+                app.storage.user[storage_key] = int(h)
+        except Exception:
+            pass
+
+    wrapper.on('resize-done', _save_height)
+    ui.timer(0.3, lambda: ui.run_javascript(f'window.initChartResize("{dom_id}")'), once=True)
+    return wrapper
 
 
 def build_all_servers_view(parent, on_drill_down=None):
@@ -88,7 +110,8 @@ def _build_dashboard(on_drill_down=None):
     def _rebuild_server_chart():
         server_chart_container.clear()
         with server_chart_container:
-            server_chart_ref[0] = _build_server_disk_chart(store, warn_pct, crit_pct, days=days_select.value)
+            with _resizable_chart_wrapper('chart_server_disk_h'):
+                server_chart_ref[0] = _build_server_disk_chart(store, warn_pct, crit_pct, days=days_select.value)
 
     days_select.on_value_change(lambda _: _rebuild_server_chart())
     _rebuild_server_chart()
@@ -190,7 +213,8 @@ def _build_dashboard(on_drill_down=None):
                     tbl = _build_table_disk_table(store, srv, topn, on_drill_down)
 
                 with ui.column().classes('q-pa-xs').style('width: 58%; min-width: 400px'):
-                    chart_result = _build_table_disk_chart(store, srv, topn)
+                    with _resizable_chart_wrapper('chart_table_disk_h'):
+                        chart_result = _build_table_disk_chart(store, srv, topn)
 
             table_chart_ref[0] = chart_result
 
@@ -418,7 +442,7 @@ def _build_server_disk_chart(store, warn_pct, crit_pct, days=30):
             ],
         }
 
-    chart_el = ui.echart(options).classes('w-full').style('height: 350px')
+    chart_el = ui.echart(options).classes('w-full').style('height: 100%')
 
     return chart_el, server_names
 
@@ -543,6 +567,6 @@ def _build_table_disk_chart(store, server_name: str, top_n: int):
         'series': series,
     }
 
-    chart_el = ui.echart(options).classes('w-full').style('height: 350px')
+    chart_el = ui.echart(options).classes('w-full').style('height: 100%')
 
     return chart_el, table_names

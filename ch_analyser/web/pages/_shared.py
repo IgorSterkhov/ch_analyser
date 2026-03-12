@@ -62,6 +62,39 @@ window.initDrawerResize = function(handleEl) {
 
 window.selectedTableName = '';
 
+window.initChartResize = function(wrapperId) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper || wrapper.dataset.resizeInit) return;
+    wrapper.dataset.resizeInit = '1';
+    var handle = document.createElement('div');
+    handle.className = 'chart-resize-handle';
+    wrapper.appendChild(handle);
+
+    handle.addEventListener('mousedown', function(e) {
+        var startY = e.clientY;
+        var startH = wrapper.offsetHeight;
+        e.preventDefault();
+        document.body.style.userSelect = 'none';
+
+        function onMove(e) {
+            var newH = Math.max(200, startH + (e.clientY - startY));
+            wrapper.style.height = newH + 'px';
+            wrapper.querySelectorAll('div[_echarts_instance_]').forEach(function(c) {
+                var inst = echarts.getInstanceByDom(c);
+                if (inst) inst.resize();
+            });
+        }
+        function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.body.style.userSelect = '';
+            wrapper.dispatchEvent(new CustomEvent('resize-done', {detail: wrapper.offsetHeight}));
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
+}
+
 window.mermaidZoom = parseFloat(sessionStorage.getItem('mermaidZoom')) || 1.0;
 
 window.applyMermaidZoom = function() {
@@ -224,6 +257,19 @@ SHARED_CSS = '''
         max-width: none !important;
         width: auto !important;
         height: auto !important;
+    }
+    .chart-resize-handle {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 6px;
+        cursor: row-resize;
+        z-index: 10;
+        background: transparent;
+    }
+    .chart-resize-handle:hover {
+        background: rgba(25, 118, 210, 0.3);
     }
     .drawer-resize-handle {
         position: absolute;
