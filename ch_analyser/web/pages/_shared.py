@@ -140,6 +140,7 @@ window.mermaidWheel = function(e) {
 window.initMermaidDrag = function() {
     document.querySelectorAll('.mermaid-scroll').forEach(function(sc) {
         if (sc._dragInit) return;
+        if (!sc.offsetParent) return;
         sc._dragInit = true;
         var dragging = false, startX, startY, scrollL, scrollT;
         sc.addEventListener('mousedown', function(e) {

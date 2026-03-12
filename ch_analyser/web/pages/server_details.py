@@ -1070,6 +1070,10 @@ def _render_flow_tab(mv_flow, query_flow, full_table_name: str):
         query_tab = ui.tab('Query Flow').tooltip('INSERT…SELECT pipelines')
         full_tab = ui.tab('Full Flow').tooltip('Combined data flow')
 
+    sub_tabs.on_value_change(
+        lambda: ui.timer(0.3, lambda: ui.run_javascript('window.initMermaidDrag()'), once=True)
+    )
+
     with ui.tab_panels(sub_tabs, value=mv_tab).classes('w-full'):
         with ui.tab_panel(mv_tab):
             mermaid_text = flow_to_mermaid(mv_flow, highlight_table=full_table_name)
