@@ -119,6 +119,7 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
             if tab == 'Text Logs' and 'Text Logs' not in ctx.main_tabs_loaded and state.service:
                 ctx.main_tabs_loaded.add('Text Logs')
                 _load_text_logs(ctx)
+            ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
         main_tabs.on_value_change(_on_main_tab_change)
 
@@ -360,8 +361,9 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
             rows=rows,
             row_key='name',
             pagination={'rowsPerPage': 20, 'sortBy': 'size', 'descending': True},
-        ).classes('w-full')
+        ).classes('w-full sticky-table')
         tbl.bind_filter_from(filter_input, 'value')
+        ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
         tbl.add_slot(
             'body',
@@ -1078,7 +1080,8 @@ def _load_text_logs(ctx: ServerDetailsContext):
                     rows=rows,
                     row_key='_row_id',
                     pagination={'rowsPerPage': 20, 'sortBy': 'max_time', 'descending': True},
-                ).classes('w-full')
+                ).classes('w-full sticky-table')
+                ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
                 tbl.add_slot('body', r'''
                     <q-tr :props="props">
@@ -1178,7 +1181,8 @@ def _load_text_log_detail(detail_panel, thread_name: str, level: int | None = No
             rows=detail_rows,
             row_key='event_time_microseconds',
             pagination={'rowsPerPage': 50, 'sortBy': 'event_time_microseconds', 'descending': True},
-        ).classes('w-full')
+        ).classes('w-full sticky-table')
+        ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
         detail_tbl.add_slot('body', r'''
             <q-tr :props="props">
@@ -1385,7 +1389,8 @@ def _load_users(ctx: ServerDetailsContext):
             rows=all_rows,
             row_key='user',
             pagination={'rowsPerPage': 20, 'sortBy': 'query_count', 'descending': True},
-        ).classes('w-full')
+        ).classes('w-full sticky-table')
+        ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
         tbl.add_slot('body', r'''
             <q-tr :props="props" class="cursor-pointer"

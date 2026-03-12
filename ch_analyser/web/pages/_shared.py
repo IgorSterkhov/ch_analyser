@@ -190,6 +190,18 @@ window.initMermaidFsDrag = function() {
     });
     sc.style.cursor = 'grab';
 }
+
+window.fitStickyTables = function() {
+    document.querySelectorAll('.sticky-table .q-table__middle').forEach(function(mid) {
+        var top = mid.getBoundingClientRect().top;
+        var maxH = window.innerHeight - top - 52;
+        mid.style.setProperty('max-height', Math.max(200, maxH) + 'px', 'important');
+    });
+}
+window.addEventListener('resize', function() {
+    clearTimeout(window._stickyResizeTimer);
+    window._stickyResizeTimer = setTimeout(window.fitStickyTables, 200);
+});
 </script>
 '''
 
@@ -197,13 +209,6 @@ window.initMermaidFsDrag = function() {
 SHARED_CSS = '''
     .q-table__middle {
         max-height: none !important;
-        overflow: visible !important;
-    }
-    .q-tab-panels {
-        overflow: visible !important;
-    }
-    .q-tab-panel {
-        overflow: visible !important;
     }
     .table-row-active {
         background-color: #1976d2 !important;
