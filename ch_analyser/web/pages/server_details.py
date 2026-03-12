@@ -19,7 +19,7 @@ from ch_analyser.web.auth_helpers import is_admin
 from ch_analyser.web.pages._shared import (
     copy_to_clipboard, show_refs_dialog,
     flow_to_mermaid, show_fullscreen_mermaid, render_mermaid_scrollable,
-    PAGINATION_SLOT,
+    PAGINATION_SLOT, HEADER_CELL_TOOLTIP_SLOT,
 )
 
 
@@ -72,7 +72,7 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
                 value=state.active_connection_name,
                 label='Connection',
                 on_change=_on_connection_selected,
-            ).props('dense outlined').classes('q-ml-xs').style('min-width: 250px')
+            ).props('dense outlined').classes('q-ml-xs').style('min-width: 250px').tooltip('Select connection')
 
         # Server info bar
         ctx.server_info_bar = ui.card().classes('q-pa-sm w-full').props('flat bordered')
@@ -80,9 +80,9 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
 
         # Main-level tabs
         with ui.tabs().classes('w-full').props('dense') as main_tabs:
-            tables_main_tab = ui.tab('Tables', icon='table_chart')
-            users_main_tab = ui.tab('Users', icon='people')
-            text_logs_main_tab = ui.tab('Text Logs', icon='article')
+            tables_main_tab = ui.tab('Tables', icon='table_chart').tooltip('Table list and sizes')
+            users_main_tab = ui.tab('Users', icon='people').tooltip('User activity stats')
+            text_logs_main_tab = ui.tab('Text Logs', icon='article').tooltip('Server error logs')
 
         with ui.tab_panels(main_tabs, value=tables_main_tab).classes(
             'w-full q-pt-none flex-grow'
@@ -281,7 +281,7 @@ def _render_server_info_bar(ctx: ServerDetailsContext, disks):
                     options={7: '7d', 30: '30d', 90: '90d', 365: '1y'},
                     value=state.query_log_days,
                     on_change=_on_days_change,
-                ).props('dense outlined').classes('q-ml-none').style('min-width: 70px')
+                ).props('dense outlined').classes('q-ml-none').style('min-width: 70px').tooltip('Query log period')
 
 
 # ── Tables ──
@@ -332,17 +332,17 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
             return
 
         columns = [
-            {'name': 'name', 'label': 'Table', 'field': 'name', 'align': 'left', 'sortable': True},
+            {'name': 'name', 'label': 'Table', 'field': 'name', 'align': 'left', 'sortable': True, 'tooltip': 'Full table name'},
             {'name': 'size', 'label': 'Size', 'field': 'size', 'align': 'right', 'sortable': True,
-             ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
+             ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes', 'tooltip': 'Disk usage'},
             {'name': 'size_pct', 'label': '%', 'field': 'size_pct', 'align': 'right', 'sortable': True,
-             ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
-            {'name': 'replicated', 'label': 'R', 'field': 'replicated', 'align': 'center'},
-            {'name': 'refs', 'label': 'Refs', 'field': 'refs_cnt', 'align': 'center', 'sortable': True},
-            {'name': 'dist', 'label': '_d', 'field': 'dist_cnt', 'align': 'center', 'sortable': True},
-            {'name': 'last_select', 'label': 'Last SELECT', 'field': 'last_select', 'align': 'center'},
-            {'name': 'last_insert', 'label': 'Last INSERT', 'field': 'last_insert', 'align': 'center'},
-            {'name': 'ttl', 'label': 'TTL', 'field': 'ttl', 'align': 'left'},
+             ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes', 'tooltip': 'Percent of total disk'},
+            {'name': 'replicated', 'label': 'R', 'field': 'replicated', 'align': 'center', 'tooltip': 'Replicated table'},
+            {'name': 'refs', 'label': 'Refs', 'field': 'refs_cnt', 'align': 'center', 'sortable': True, 'tooltip': 'Referencing objects'},
+            {'name': 'dist', 'label': '_d', 'field': 'dist_cnt', 'align': 'center', 'sortable': True, 'tooltip': 'Distributed references'},
+            {'name': 'last_select', 'label': 'Last SELECT', 'field': 'last_select', 'align': 'center', 'tooltip': 'Last read query'},
+            {'name': 'last_insert', 'label': 'Last INSERT', 'field': 'last_insert', 'align': 'center', 'tooltip': 'Last write query'},
+            {'name': 'ttl', 'label': 'TTL', 'field': 'ttl', 'align': 'left', 'tooltip': 'Data retention rules'},
         ]
         rows = []
         for t in data:
@@ -379,6 +379,7 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
         tbl.bind_filter_from(filter_input, 'value')
         ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
+        tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)
         tbl.add_slot(
             'body',
             r'''
@@ -461,7 +462,7 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
             ui.button('Refresh', icon='refresh',
                       on_click=lambda: background_tasks.create(_load_tables(ctx))).props(
                 'flat dense color=primary'
-            )
+            ).tooltip('Reload table data')
             ui.button(icon='code', on_click=_show_tables_sql).props(
                 'flat dense color=primary'
             ).tooltip('Show generated SQL')
@@ -521,9 +522,9 @@ async def _load_columns(ctx: ServerDetailsContext, full_table_name: str):
         ).style('border: 1px solid #9e9e9e; border-radius: 4px')
 
         with ui.tabs().classes('w-full').props('dense') as tabs:
-            columns_tab = ui.tab('Columns')
-            history_tab = ui.tab('Query History')
-            flow_tab = ui.tab('Flow')
+            columns_tab = ui.tab('Columns').tooltip('Column details')
+            history_tab = ui.tab('Query History').tooltip('Query history')
+            flow_tab = ui.tab('Flow').tooltip('Data flow diagrams')
 
         loaded_tabs = set()
 
@@ -569,15 +570,15 @@ def _render_columns_tab(data, col_refs, full_table_name: str, total_disk_bytes: 
     table_total_bytes = sum(c.get('size_bytes', 0) for c in data)
 
     columns = [
-        {'name': 'name', 'label': 'Column', 'field': 'name', 'align': 'left', 'sortable': True},
-        {'name': 'type', 'label': 'Type', 'field': 'type', 'align': 'left', 'sortable': True},
-        {'name': 'codec', 'label': 'Codec', 'field': 'codec', 'align': 'left'},
+        {'name': 'name', 'label': 'Column', 'field': 'name', 'align': 'left', 'sortable': True, 'tooltip': 'Column name'},
+        {'name': 'type', 'label': 'Type', 'field': 'type', 'align': 'left', 'sortable': True, 'tooltip': 'Data type'},
+        {'name': 'codec', 'label': 'Codec', 'field': 'codec', 'align': 'left', 'tooltip': 'Compression codec'},
         {'name': 'size', 'label': 'Size', 'field': 'size', 'align': 'right', 'sortable': True,
-         ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
+         ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes', 'tooltip': 'Disk usage'},
         {'name': 'size_pct', 'label': '%', 'field': 'size_pct', 'align': 'right', 'sortable': True,
-         ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
-        {'name': 'refs', 'label': 'Refs', 'field': 'refs_cnt', 'align': 'center', 'sortable': True},
-        {'name': 'dist', 'label': '_d', 'field': 'dist_cnt', 'align': 'center', 'sortable': True},
+         ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes', 'tooltip': '% of table / server'},
+        {'name': 'refs', 'label': 'Refs', 'field': 'refs_cnt', 'align': 'center', 'sortable': True, 'tooltip': 'Referencing objects'},
+        {'name': 'dist', 'label': '_d', 'field': 'dist_cnt', 'align': 'center', 'sortable': True, 'tooltip': 'Distributed references'},
     ]
     rows = []
     for c in data:
@@ -609,6 +610,7 @@ def _render_columns_tab(data, col_refs, full_table_name: str, total_disk_bytes: 
         pagination={'rowsPerPage': 0, 'sortBy': 'size', 'descending': True},
     ).classes('w-full')
 
+    tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)
     tbl.add_slot(
         'body',
         r'''
@@ -764,13 +766,13 @@ def _render_query_history_tab(filters, service, full_table_name: str):
             filter_input = ui.input(placeholder='Filter...').props('dense clearable').classes('q-mb-sm w-full')
 
             columns = [
-                {'name': 'event_time', 'label': 'Time', 'field': 'event_time', 'align': 'left', 'sortable': True},
-                {'name': 'user', 'label': 'User', 'field': 'user', 'align': 'left', 'sortable': True},
-                {'name': 'query_kind', 'label': 'Kind', 'field': 'query_kind', 'align': 'center', 'sortable': True},
-                {'name': 'query', 'label': 'Query', 'field': 'query_short', 'align': 'left'},
+                {'name': 'event_time', 'label': 'Time', 'field': 'event_time', 'align': 'left', 'sortable': True, 'tooltip': 'Query execution time'},
+                {'name': 'user', 'label': 'User', 'field': 'user', 'align': 'left', 'sortable': True, 'tooltip': 'ClickHouse user'},
+                {'name': 'query_kind', 'label': 'Kind', 'field': 'query_kind', 'align': 'center', 'sortable': True, 'tooltip': 'Query type'},
+                {'name': 'query', 'label': 'Query', 'field': 'query_short', 'align': 'left', 'tooltip': 'Query text (truncated)'},
             ]
             if not direct_only[0]:
-                columns.insert(3, {'name': 'direct', 'label': 'Direct', 'field': 'direct', 'align': 'center', 'sortable': True})
+                columns.insert(3, {'name': 'direct', 'label': 'Direct', 'field': 'direct', 'align': 'center', 'sortable': True, 'tooltip': 'Direct table reference'})
 
             body_slot = r'''
                 <q-tr :props="props" class="cursor-pointer"
@@ -795,6 +797,7 @@ def _render_query_history_tab(filters, service, full_table_name: str):
             ).classes('w-full')
 
             tbl.bind_filter_from(filter_input, 'value')
+            tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)
             tbl.add_slot('body', body_slot)
 
             def _highlight_table(sql_text, table_name):
@@ -968,7 +971,7 @@ def _render_query_history_tab(filters, service, full_table_name: str):
         ui.select(
             [50, 100, 200, 500, 1000], value=200,
             on_change=lambda e: (current_limit.__setitem__(0, e.value), _refresh()),
-        ).props('dense borderless').style('min-width: 80px')
+        ).props('dense borderless').style('min-width: 80px').tooltip('Results limit')
 
         ui.switch('Direct', value=True,
                   on_change=lambda e: (direct_only.__setitem__(0, e.value), _reload_filters_and_refresh()),
@@ -978,7 +981,7 @@ def _render_query_history_tab(filters, service, full_table_name: str):
             'flat dense color=primary'
         ).tooltip('Show generated SQL')
 
-        ui.button('Refresh', icon='refresh', on_click=_refresh).props('flat dense color=primary')
+        ui.button('Refresh', icon='refresh', on_click=_refresh).props('flat dense color=primary').tooltip('Reload history')
 
     table_container = ui.column().classes('w-full')
     _refresh()
@@ -1003,9 +1006,9 @@ async def _render_flow_tab_async(service, full_table_name: str, panel):
 
 def _render_flow_tab(mv_flow, query_flow, full_table_name: str):
     with ui.tabs().classes('w-full').props('dense') as sub_tabs:
-        mv_tab = ui.tab('MV Flow')
-        query_tab = ui.tab('Query Flow')
-        full_tab = ui.tab('Full Flow')
+        mv_tab = ui.tab('MV Flow').tooltip('Materialized view chains')
+        query_tab = ui.tab('Query Flow').tooltip('INSERT…SELECT pipelines')
+        full_tab = ui.tab('Full Flow').tooltip('Combined data flow')
 
     with ui.tab_panels(sub_tabs, value=mv_tab).classes('w-full'):
         with ui.tab_panel(mv_tab):
@@ -1075,15 +1078,15 @@ async def _load_text_logs(ctx: ServerDetailsContext):
             with splitter.before:
                 ui.button('Refresh', icon='refresh',
                           on_click=lambda: background_tasks.create(
-                              _load_text_logs(ctx))).props('flat dense color=primary')
+                              _load_text_logs(ctx))).props('flat dense color=primary').tooltip('Reload logs')
 
                 columns = [
-                    {'name': 'thread_name', 'label': 'Thread', 'field': 'thread_name', 'align': 'left', 'sortable': True},
-                    {'name': 'level_name', 'label': 'Level', 'field': 'level_name', 'align': 'center', 'sortable': True},
-                    {'name': 'max_time', 'label': 'Last Seen', 'field': 'max_time', 'align': 'center', 'sortable': True},
+                    {'name': 'thread_name', 'label': 'Thread', 'field': 'thread_name', 'align': 'left', 'sortable': True, 'tooltip': 'Thread name'},
+                    {'name': 'level_name', 'label': 'Level', 'field': 'level_name', 'align': 'center', 'sortable': True, 'tooltip': 'Log severity'},
+                    {'name': 'max_time', 'label': 'Last Seen', 'field': 'max_time', 'align': 'center', 'sortable': True, 'tooltip': 'Last occurrence'},
                     {'name': 'cnt', 'label': 'Count', 'field': 'cnt', 'align': 'right', 'sortable': True,
-                     ':sort': '(a, b) => a - b'},
-                    {'name': 'message_example', 'label': 'Message Example', 'field': 'message_example', 'align': 'left'},
+                     ':sort': '(a, b) => a - b', 'tooltip': 'Number of entries'},
+                    {'name': 'message_example', 'label': 'Message Example', 'field': 'message_example', 'align': 'left', 'tooltip': 'Message preview'},
                 ]
                 rows = []
                 for i, r in enumerate(data):
@@ -1106,6 +1109,7 @@ async def _load_text_logs(ctx: ServerDetailsContext):
                 ).classes('w-full sticky-table')
                 ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
+                tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)
                 tbl.add_slot('body', r'''
                     <q-tr :props="props">
                         <q-td key="thread_name" :props="props">
@@ -1132,7 +1136,7 @@ async def _load_text_logs(ctx: ServerDetailsContext):
             with splitter.after:
                 with ui.row().classes('w-full justify-between items-center q-mb-xs'):
                     ui.label('Details').classes('text-subtitle2')
-                    ui.button(icon='close', on_click=lambda: splitter.set_value(100)).props('flat dense size=sm')
+                    ui.button(icon='close', on_click=lambda: splitter.set_value(100)).props('flat dense size=sm').tooltip('Hide detail panel')
                 detail_panel = ui.column().classes('w-full q-pa-sm')
                 with detail_panel:
                     ui.label('Click a thread name to see details.').classes('text-grey-7')
@@ -1234,7 +1238,9 @@ def _load_text_log_detail(detail_panel, thread_name: str, level: int | None = No
                     <div class="row items-center no-wrap">
                         <q-btn flat dense round size="sm" icon="visibility" color="primary"
                                @click.stop="$parent.$emit('show-message', props.row)"
-                               class="q-mr-xs" />
+                               class="q-mr-xs">
+                            <q-tooltip>View full message</q-tooltip>
+                        </q-btn>
                         <span class="ellipsis" style="max-width: 550px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                             {{ props.row.message }}
                         </span>
@@ -1336,24 +1342,24 @@ async def _load_users(ctx: ServerDetailsContext):
         ]
 
         columns = [
-            {'name': 'user', 'label': 'User', 'field': 'user', 'align': 'left', 'sortable': True},
+            {'name': 'user', 'label': 'User', 'field': 'user', 'align': 'left', 'sortable': True, 'tooltip': 'ClickHouse user'},
             {'name': 'query_count', 'label': 'Queries', 'field': 'query_count', 'align': 'right', 'sortable': True,
-             ':sort': '(a, b) => a - b'},
-            {'name': 'last_query_time', 'label': 'Last Query', 'field': 'last_query_time', 'align': 'center', 'sortable': True},
+             ':sort': '(a, b) => a - b', 'tooltip': 'Total query count'},
+            {'name': 'last_query_time', 'label': 'Last Query', 'field': 'last_query_time', 'align': 'center', 'sortable': True, 'tooltip': 'Most recent query'},
             {'name': 'total_duration_sec', 'label': 'Total Time (s)', 'field': 'total_duration_sec', 'align': 'right', 'sortable': True,
-             ':sort': '(a, b) => a - b'},
+             ':sort': '(a, b) => a - b', 'tooltip': 'Cumulative duration'},
             {'name': 'total_read', 'label': 'Read', 'field': 'total_read', 'align': 'right', 'sortable': True,
-             ':sort': '(a, b, rowA, rowB) => rowA.total_read_bytes - rowB.total_read_bytes'},
+             ':sort': '(a, b, rowA, rowB) => rowA.total_read_bytes - rowB.total_read_bytes', 'tooltip': 'Data read total'},
             {'name': 'total_written', 'label': 'Written', 'field': 'total_written', 'align': 'right', 'sortable': True,
-             ':sort': '(a, b, rowA, rowB) => rowA.total_written_bytes - rowB.total_written_bytes'},
+             ':sort': '(a, b, rowA, rowB) => rowA.total_written_bytes - rowB.total_written_bytes', 'tooltip': 'Data written total'},
             {'name': 'peak_memory', 'label': 'Peak Mem', 'field': 'peak_memory', 'align': 'right', 'sortable': True,
-             ':sort': '(a, b, rowA, rowB) => rowA.peak_memory_bytes - rowB.peak_memory_bytes'},
+             ':sort': '(a, b, rowA, rowB) => rowA.peak_memory_bytes - rowB.peak_memory_bytes', 'tooltip': 'Max memory usage'},
             {'name': 'selects', 'label': 'SELECTs', 'field': 'selects', 'align': 'right', 'sortable': True,
-             ':sort': '(a, b) => a - b'},
+             ':sort': '(a, b) => a - b', 'tooltip': 'Read query count'},
             {'name': 'inserts', 'label': 'INSERTs', 'field': 'inserts', 'align': 'right', 'sortable': True,
-             ':sort': '(a, b) => a - b'},
+             ':sort': '(a, b) => a - b', 'tooltip': 'Write query count'},
             {'name': 'other_queries', 'label': 'Other', 'field': 'other_queries', 'align': 'right', 'sortable': True,
-             ':sort': '(a, b) => a - b'},
+             ':sort': '(a, b) => a - b', 'tooltip': 'Other query count'},
         ]
 
         def _update_button_styles():
@@ -1406,7 +1412,7 @@ async def _load_users(ctx: ServerDetailsContext):
 
         ui.button('Refresh', icon='refresh',
                   on_click=lambda: background_tasks.create(
-                      _load_users(ctx))).props('flat dense color=primary')
+                      _load_users(ctx))).props('flat dense color=primary').tooltip('Reload user stats')
 
         tbl = ui.table(
             columns=columns,
@@ -1416,6 +1422,7 @@ async def _load_users(ctx: ServerDetailsContext):
         ).classes('w-full sticky-table')
         ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
+        tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)
         tbl.add_slot('body', r'''
             <q-tr :props="props" class="cursor-pointer"
                    @click="
@@ -1480,10 +1487,10 @@ def _load_user_detail(ctx: ServerDetailsContext, user_name: str):
                 ui.label('Mode:').classes('text-caption text-grey-7')
                 mode_all_btn = ui.button('All queries', on_click=lambda: _set_mode('all')).props(
                     'dense no-caps size=sm'
-                )
+                ).tooltip('Individual queries')
                 mode_grp_btn = ui.button('Grouped', on_click=lambda: _set_mode('grouped')).props(
                     'dense no-caps size=sm'
-                )
+                ).tooltip('Group by query hash')
                 if mode[0] == 'all':
                     mode_all_btn.props('push color=primary')
                     mode_grp_btn.props('push color=grey-4 text-color=grey-8')
@@ -1563,12 +1570,12 @@ def _render_user_queries_all(service, user_name, status, kind):
         })
 
     columns = [
-        {'name': 'event_time', 'label': 'Time', 'field': 'event_time', 'align': 'left', 'sortable': True},
-        {'name': 'query_kind', 'label': 'Kind', 'field': 'query_kind', 'align': 'center'},
+        {'name': 'event_time', 'label': 'Time', 'field': 'event_time', 'align': 'left', 'sortable': True, 'tooltip': 'Execution time'},
+        {'name': 'query_kind', 'label': 'Kind', 'field': 'query_kind', 'align': 'center', 'tooltip': 'Query type'},
         {'name': 'duration_ms', 'label': 'Duration (ms)', 'field': 'duration_ms', 'align': 'right', 'sortable': True,
-         ':sort': '(a, b) => a - b'},
-        {'name': 'status', 'label': 'Status', 'field': 'status', 'align': 'center'},
-        {'name': 'query_short', 'label': 'Query', 'field': 'query_short', 'align': 'left'},
+         ':sort': '(a, b) => a - b', 'tooltip': 'Execution duration'},
+        {'name': 'status', 'label': 'Status', 'field': 'status', 'align': 'center', 'tooltip': 'Query result'},
+        {'name': 'query_short', 'label': 'Query', 'field': 'query_short', 'align': 'left', 'tooltip': 'Query text'},
     ]
 
     tbl = ui.table(
@@ -1578,6 +1585,7 @@ def _render_user_queries_all(service, user_name, status, kind):
         pagination={'rowsPerPage': 50, 'sortBy': 'event_time', 'descending': True},
     ).classes('w-full q-mt-sm')
 
+    tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)
     tbl.add_slot('body', r'''
         <q-tr :props="props" class="cursor-pointer"
                @click="$parent.$emit('query-click', props.row)">
@@ -1594,8 +1602,12 @@ def _render_user_queries_all(service, user_name, status, kind):
             </q-td>
             <q-td key="duration_ms" :props="props">{{ props.row.duration_ms }}</q-td>
             <q-td key="status" :props="props">
-                <q-icon v-if="props.row.status === 'error'" name="cancel" color="negative" size="xs" />
-                <q-icon v-else name="check_circle" color="positive" size="xs" />
+                <q-icon v-if="props.row.status === 'error'" name="cancel" color="negative" size="xs">
+                    <q-tooltip>Query failed</q-tooltip>
+                </q-icon>
+                <q-icon v-else name="check_circle" color="positive" size="xs">
+                    <q-tooltip>Query succeeded</q-tooltip>
+                </q-icon>
             </q-td>
             <q-td key="query_short" :props="props" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
                 {{ props.row.query_short }}
@@ -1640,14 +1652,14 @@ def _render_user_queries_grouped(service, user_name, status, kind):
         })
 
     columns = [
-        {'name': 'sample_query', 'label': 'Query', 'field': 'sample_query', 'align': 'left'},
+        {'name': 'sample_query', 'label': 'Query', 'field': 'sample_query', 'align': 'left', 'tooltip': 'Normalized query'},
         {'name': 'query_count', 'label': 'Count', 'field': 'query_count', 'align': 'right', 'sortable': True,
-         ':sort': '(a, b) => a - b'},
+         ':sort': '(a, b) => a - b', 'tooltip': 'Execution count'},
         {'name': 'error_count', 'label': 'Errors', 'field': 'error_count', 'align': 'right', 'sortable': True,
-         ':sort': '(a, b) => a - b'},
-        {'name': 'last_time', 'label': 'Last', 'field': 'last_time', 'align': 'center', 'sortable': True},
+         ':sort': '(a, b) => a - b', 'tooltip': 'Error count'},
+        {'name': 'last_time', 'label': 'Last', 'field': 'last_time', 'align': 'center', 'sortable': True, 'tooltip': 'Last execution'},
         {'name': 'total_duration_ms', 'label': 'Total (ms)', 'field': 'total_duration_ms', 'align': 'right', 'sortable': True,
-         ':sort': '(a, b) => a - b'},
+         ':sort': '(a, b) => a - b', 'tooltip': 'Total duration'},
     ]
 
     tbl = ui.table(
@@ -1656,6 +1668,7 @@ def _render_user_queries_grouped(service, user_name, status, kind):
         row_key='hash',
         pagination={'rowsPerPage': 50, 'sortBy': 'query_count', 'descending': True},
     ).classes('w-full q-mt-sm')
+    tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)
 
     tbl.add_slot('body', r'''
         <q-tr :props="props" class="cursor-pointer"

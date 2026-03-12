@@ -108,7 +108,7 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None, title: 
             )
 
         with ui.row().classes('w-full justify-end q-mt-md gap-2'):
-            ui.button('Cancel', on_click=dialog.close).props('flat')
+            ui.button('Cancel', on_click=dialog.close).props('flat').tooltip('Discard changes')
 
             async def handle_test():
                 if not host_input.value:
@@ -129,7 +129,7 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None, title: 
                     except Exception:
                         pass
 
-            ui.button('Test', on_click=handle_test).props('flat color=positive')
+            ui.button('Test', on_click=handle_test).props('flat color=positive').tooltip('Test connection')
 
             def handle_save():
                 if not name_input.value or not host_input.value:
@@ -139,6 +139,6 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None, title: 
                 dialog.close()
                 on_save(cfg)
 
-            ui.button('Save', on_click=handle_save).props('color=primary')
+            ui.button('Save', on_click=handle_save).props('color=primary').tooltip('Save connection')
 
     dialog.open()

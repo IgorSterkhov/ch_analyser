@@ -99,3 +99,4 @@ with ui.element('div').style(
 - Web UI functions that rebuild panels follow the pattern: `_build_*()` or `_load_*()`
 - Panel references are passed through function parameters (no global UI state)
 - Russian language in commit messages is acceptable (project originated in Russian)
+- **Тултипы обязательны** для всех новых UI-элементов (кнопки, вкладки, иконки, колонки таблиц). Для кнопок/вкладок: `.tooltip('текст')`. Для колонок таблиц: добавить `'tooltip': 'текст'` в dict колонки и `tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)`. Константа `HEADER_CELL_TOOLTIP_SLOT` определена в `_shared.py`.

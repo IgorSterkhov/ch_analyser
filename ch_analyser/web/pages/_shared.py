@@ -327,6 +327,13 @@ SHARED_CSS = '''
 '''
 
 # Standard pagination slot template for Quasar tables
+HEADER_CELL_TOOLTIP_SLOT = r'''
+<q-th :props="props">
+    {{ props.col.label }}
+    <q-tooltip v-if="props.col.tooltip">{{ props.col.tooltip }}</q-tooltip>
+</q-th>
+'''
+
 PAGINATION_SLOT = r'''
     <span class="q-mr-sm">Rows per page:</span>
     <q-select
@@ -410,17 +417,17 @@ def show_fullscreen_mermaid(mermaid_text: str):
         ):
             ui.button(icon='remove', on_click=lambda: ui.run_javascript('window.mermaidFsZoomOut()')).props(
                 'flat dense size=sm'
-            ).classes('mermaid-zoom-btn')
+            ).classes('mermaid-zoom-btn').tooltip('Zoom out')
             ui.label('100%').classes('mermaid-fs-zoom-label text-caption')
             ui.button(icon='add', on_click=lambda: ui.run_javascript('window.mermaidFsZoomIn()')).props(
                 'flat dense size=sm'
-            ).classes('mermaid-zoom-btn')
+            ).classes('mermaid-zoom-btn').tooltip('Zoom in')
             ui.button('Fit', icon='fit_screen',
                       on_click=lambda: ui.run_javascript('window.mermaidFsAutoFit()')).props(
                 'flat dense size=sm'
-            ).classes('q-ml-sm')
+            ).classes('q-ml-sm').tooltip('Fit to screen')
             ui.space()
-            ui.button(icon='close', on_click=dlg.close).props('flat dense')
+            ui.button(icon='close', on_click=dlg.close).props('flat dense').tooltip('Close')
         with ui.element('div').classes('mermaid-fs-scroll').style(
             'overflow: auto; flex: 1; width: 100%; height: calc(100vh - 40px)'
         ):
@@ -441,11 +448,11 @@ def render_mermaid_scrollable(mermaid_text: str):
         with ui.row().classes('mermaid-zoom-controls'):
             ui.button(icon='remove', on_click=lambda: ui.run_javascript('window.mermaidZoomOut()')).props(
                 'flat dense size=sm'
-            ).classes('mermaid-zoom-btn')
+            ).classes('mermaid-zoom-btn').tooltip('Zoom out')
             ui.label('100%').classes('mermaid-zoom-label text-caption')
             ui.button(icon='add', on_click=lambda: ui.run_javascript('window.mermaidZoomIn()')).props(
                 'flat dense size=sm'
-            ).classes('mermaid-zoom-btn')
+            ).classes('mermaid-zoom-btn').tooltip('Zoom in')
             ui.button(icon='fullscreen',
                       on_click=lambda t=mermaid_text: show_fullscreen_mermaid(t)).props(
                 'flat dense size=sm'

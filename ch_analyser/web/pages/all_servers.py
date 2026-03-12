@@ -7,6 +7,7 @@ from nicegui import app, ui
 
 import ch_analyser.web.state as state
 from ch_analyser.web.components.settings_dialog import get_admin_settings
+from ch_analyser.web.pages._shared import HEADER_CELL_TOOLTIP_SLOT
 from ch_analyser.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -89,9 +90,9 @@ def _build_dashboard(on_drill_down=None):
                 options=[30, 60, 90, 180, 365],
                 value=30,
                 label='Days',
-            ).props('dense outlined').style('min-width: 100px')
-            ui.button('Show all', on_click=_show_all_servers).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px')
-            ui.button('Hide all', on_click=_hide_all_servers).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px')
+            ).props('dense outlined').style('min-width: 100px').tooltip('History period')
+            ui.button('Show all', on_click=_show_all_servers).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px').tooltip('Show all series')
+            ui.button('Hide all', on_click=_hide_all_servers).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px').tooltip('Hide all series')
 
     # Mutable ref for table_server_select (defined later in Block 2)
     table_server_ref = [None]
@@ -186,18 +187,18 @@ def _build_dashboard(on_drill_down=None):
                 options=server_names,
                 value=server_names[0] if server_names else None,
                 label='Server',
-            ).props('dense outlined').style('min-width: 200px')
+            ).props('dense outlined').style('min-width: 200px').tooltip('Filter by server')
             table_server_ref[0] = table_server_select
 
             table_topn_select = ui.select(
                 options=[30, 50, 100],
                 value=30,
                 label='Top N',
-            ).props('dense outlined').style('min-width: 100px')
+            ).props('dense outlined').style('min-width: 100px').tooltip('Number of tables')
 
         with ui.row().classes('items-center gap-2 q-mb-xs').style('width: 58%; min-width: 400px'):
-            ui.button('Show all', on_click=_show_all_tables).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px')
-            ui.button('Hide all', on_click=_hide_all_tables).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px')
+            ui.button('Show all', on_click=_show_all_tables).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px').tooltip('Show all series')
+            ui.button('Hide all', on_click=_hide_all_tables).props('dense flat no-caps color=dark').style('border: 1px solid rgba(0,0,0,0.24); border-radius: 4px; padding: 4px 12px').tooltip('Hide all series')
 
     # Table + Chart row
     tables_container = ui.column().classes('w-full')
@@ -304,11 +305,11 @@ def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None, on_s
     rows.sort(key=lambda r: r['pct'], reverse=True)
 
     columns = [
-        {'name': 'server_name', 'label': 'Server', 'field': 'server_name', 'align': 'left', 'sortable': True},
-        {'name': 'used', 'label': 'Used', 'field': 'used', 'align': 'right'},
+        {'name': 'server_name', 'label': 'Server', 'field': 'server_name', 'align': 'left', 'sortable': True, 'tooltip': 'Connection name'},
+        {'name': 'used', 'label': 'Used', 'field': 'used', 'align': 'right', 'tooltip': 'Disk space used'},
         {'name': 'pct', 'label': '%', 'field': 'pct', 'align': 'right', 'sortable': True,
-         ':sort': '(a, b) => a - b'},
-        {'name': 'status', 'label': 'Status', 'field': 'status', 'align': 'center'},
+         ':sort': '(a, b) => a - b', 'tooltip': 'Usage percent'},
+        {'name': 'status', 'label': 'Status', 'field': 'status', 'align': 'center', 'tooltip': 'Disk status'},
         {'name': 'tables', 'label': '', 'field': 'tables', 'align': 'center'},
         {'name': 'actions', 'label': '', 'field': 'actions', 'align': 'center'},
     ]
@@ -320,6 +321,7 @@ def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None, on_s
         pagination={'rowsPerPage': 0, 'sortBy': 'pct', 'descending': True},
     ).classes('w-full server-disk-tbl')
 
+    tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)
     tbl.add_slot('body', r'''
         <q-tr :props="props" @click="$parent.$emit('row-click', $event, props.row)" style="cursor: pointer">
             <q-td key="server_name" :props="props">
@@ -342,11 +344,15 @@ def _build_server_disk_table(store, warn_pct, crit_pct, on_drill_down=None, on_s
             </q-td>
             <q-td key="tables" :props="props">
                 <q-btn flat dense size="sm" icon="table_chart" color="grey-7"
-                       @click.stop="$parent.$emit('show-tables', props.row)" />
+                       @click.stop="$parent.$emit('show-tables', props.row)">
+                    <q-tooltip>Show tables</q-tooltip>
+                </q-btn>
             </q-td>
             <q-td key="actions" :props="props">
                 <q-btn flat dense size="sm" icon="open_in_new" color="primary"
-                       @click.stop="$parent.$emit('drill-down', props.row)" />
+                       @click.stop="$parent.$emit('drill-down', props.row)">
+                    <q-tooltip>Open server details</q-tooltip>
+                </q-btn>
             </q-td>
         </q-tr>
     ''')
@@ -481,11 +487,11 @@ def _build_table_disk_table(store, server_name: str, top_n: int, on_drill_down=N
         })
 
     columns = [
-        {'name': 'table_name', 'label': 'Table', 'field': 'table_name', 'align': 'left', 'sortable': True},
+        {'name': 'table_name', 'label': 'Table', 'field': 'table_name', 'align': 'left', 'sortable': True, 'tooltip': 'Full table name'},
         {'name': 'size', 'label': 'Size', 'field': 'size', 'align': 'right', 'sortable': True,
-         ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes'},
+         ':sort': '(a, b, rowA, rowB) => rowA.size_bytes - rowB.size_bytes', 'tooltip': 'Disk usage'},
         {'name': 'pct', 'label': '%', 'field': 'pct', 'align': 'right', 'sortable': True,
-         ':sort': '(a, b) => a - b'},
+         ':sort': '(a, b) => a - b', 'tooltip': 'Percent of server total'},
     ]
 
     tbl = ui.table(
@@ -494,6 +500,7 @@ def _build_table_disk_table(store, server_name: str, top_n: int, on_drill_down=N
         row_key='table_name',
         pagination={'rowsPerPage': 0, 'sortBy': 'size', 'descending': True},
     ).classes('w-full tables-disk-tbl')
+    tbl.add_slot('header-cell', HEADER_CELL_TOOLTIP_SLOT)
 
     return tbl
 

@@ -48,10 +48,10 @@ def show_settings_dialog(on_connections_changed=None):
         ui.label('Settings').classes('text-h6 q-mb-sm')
 
         with ui.tabs().classes('w-full').props('dense') as tabs:
-            general_tab = ui.tab('General', icon='tune')
+            general_tab = ui.tab('General', icon='tune').tooltip('UI preferences')
             if admin:
-                connections_tab = ui.tab('Connections', icon='dns')
-                monitoring_tab = ui.tab('Monitoring', icon='monitor_heart')
+                connections_tab = ui.tab('Connections', icon='dns').tooltip('Server connections')
+                monitoring_tab = ui.tab('Monitoring', icon='monitor_heart').tooltip('Alert thresholds')
 
         with ui.tab_panels(tabs, value=general_tab).classes('w-full'):
             # ── General tab ──
@@ -132,7 +132,7 @@ def show_settings_dialog(on_connections_changed=None):
 
                     ui.button('Stop Service', icon='power_settings_new', on_click=_confirm_shutdown).props(
                         'color=negative outline dense'
-                    )
+                    ).tooltip('Stop application')
 
         with ui.row().classes('w-full justify-end q-mt-md'):
             ui.button('Close', on_click=dlg.close).props('flat')
@@ -190,11 +190,17 @@ def _build_connections_list(container, dlg, on_connections_changed=None):
                 </q-td>
                 <q-td key="actions" :props="props">
                     <q-btn flat dense size="sm" icon="edit"
-                           @click.stop="$parent.$emit('edit', props.row)" />
+                           @click.stop="$parent.$emit('edit', props.row)">
+                        <q-tooltip>Edit connection</q-tooltip>
+                    </q-btn>
                     <q-btn flat dense size="sm" icon="content_copy"
-                           @click.stop="$parent.$emit('copy', props.row)" />
+                           @click.stop="$parent.$emit('copy', props.row)">
+                        <q-tooltip>Copy connection</q-tooltip>
+                    </q-btn>
                     <q-btn flat dense size="sm" icon="delete" color="negative"
-                           @click.stop="$parent.$emit('delete', props.row)" />
+                           @click.stop="$parent.$emit('delete', props.row)">
+                        <q-tooltip>Delete connection</q-tooltip>
+                    </q-btn>
                 </q-td>
             </q-tr>
         ''')

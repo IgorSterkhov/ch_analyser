@@ -33,7 +33,7 @@ def main_page():
         resize_handle = ui.element('div').classes('drawer-resize-handle')
         with ui.row().classes('items-center justify-between w-full q-mb-sm'):
             drawer_title = ui.label('Table Details').classes('text-h6')
-            ui.button(icon='close', on_click=right_drawer.hide).props('flat dense')
+            ui.button(icon='close', on_click=right_drawer.hide).props('flat dense').tooltip('Close panel')
         columns_panel = ui.column().classes('w-full')
         with columns_panel:
             ui.label('Select a table.').classes('text-grey-7')
@@ -64,7 +64,7 @@ def main_page():
     # Right drawer toggle button
     ui.button(icon='chevron_right', on_click=lambda: right_drawer.set_value(not right_drawer.value)).props(
         'color=primary dense unelevated'
-    ).classes('right-drawer-toggle-btn drawer-closed')
+    ).classes('right-drawer-toggle-btn drawer-closed').tooltip('Toggle details panel')
 
     # View containers (created before header so drill_down can reference ctx)
     all_view = None

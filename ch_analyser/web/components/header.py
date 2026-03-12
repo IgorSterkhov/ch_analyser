@@ -38,26 +38,26 @@ def header(on_nav_change=None, active_view='all_servers', on_connections_changed
             btn_all = ui.button(
                 'All Servers',
                 on_click=lambda: _on_click('all_servers'),
-            ).props('flat dense color=white no-caps')
+            ).props('flat dense color=white no-caps').tooltip('Monitoring dashboard')
             nav_buttons['all_servers'] = btn_all
 
             btn_details = ui.button(
                 'by Server Details',
                 on_click=lambda: _on_click('server_details'),
-            ).props('flat dense color=white no-caps')
+            ).props('flat dense color=white no-caps').tooltip('Server analysis')
             nav_buttons['server_details'] = btn_details
 
         with ui.row().classes('items-center gap-4'):
             ui.button(
                 icon='settings',
                 on_click=lambda: show_settings_dialog(on_connections_changed=on_connections_changed),
-            ).props('flat dense color=white')
-            ui.button(icon='help_outline', on_click=show_docs_dialog).props('flat dense color=white')
+            ).props('flat dense color=white').tooltip('Settings')
+            ui.button(icon='help_outline', on_click=show_docs_dialog).props('flat dense color=white').tooltip('Documentation')
             username = app.storage.user.get('username', '')
             role = app.storage.user.get('role', '')
             if username:
                 ui.label(f'{username} ({role})').classes('text-white')
-                ui.button(icon='logout', on_click=_logout).props('flat dense color=white')
+                ui.button(icon='logout', on_click=_logout).props('flat dense color=white').tooltip('Log out')
 
     _update_nav(active_view)
     return _update_nav
