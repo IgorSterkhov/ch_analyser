@@ -418,7 +418,7 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
 
         _current_detail_table = [None]
 
-        def on_row_click(e):
+        async def on_row_click(e):
             global _suppress_right_drawer_hide
             _suppress_right_drawer_hide = True
             row = e.args
@@ -428,7 +428,7 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
                 _current_detail_table[0] = None
             else:
                 _current_detail_table[0] = table_name
-                background_tasks.create(_load_columns(ctx, table_name))
+                await _load_columns(ctx, table_name)
 
         tbl.on('row-click', on_row_click)
 
