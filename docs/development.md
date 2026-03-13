@@ -75,7 +75,8 @@ ch_analyser/
 │   │   ├── auth_helpers.py    # Хелперы авторизации для веба
 │   │   ├── pages/
 │   │   │   ├── login.py       # Страница входа
-│   │   │   └── main.py        # Основной layout
+│   │   │   ├── main.py        # Основной layout
+│   │   │   └── query_logs.py  # Вкладка Query Logs (серверный лог запросов)
 │   │   └── components/
 │   │       ├── header.py      # Шапка приложения
 │   │       ├── connection_dialog.py  # Диалог подключения

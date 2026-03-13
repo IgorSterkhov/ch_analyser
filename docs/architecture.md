@@ -25,6 +25,9 @@
 - `get_disk_info()` - информация о дисках
 - `get_query_history(full_table_name)` - история запросов из `system.query_log`
 - `get_query_history_sql(full_table_name)` - SQL-строка запроса истории
+- `get_query_logs_filters()` - значения фильтров для серверного лога запросов
+- `get_query_logs()` / `get_query_logs_grouped()` - серверный лог запросов (все / группировка по hash)
+- `get_query_logs_sql()` - SQL-строка запроса серверного лога
 
 ### ConnectionManager (`config.py`)
 
