@@ -17,6 +17,8 @@ pip install -r requirements.txt
 - `clickhouse-connect` - HTTP-протокол ClickHouse
 - `python-dotenv` - чтение конфигурации из `.env`
 - `sqlparse` - форматирование SQL-запросов
+- `duckdb` - локальное хранение метрик мониторинга (дашборд All Servers)
+- `openpyxl` - генерация Excel-файлов для экспорта данных
 - `pytest` - тестирование
 
 ## Запуск
