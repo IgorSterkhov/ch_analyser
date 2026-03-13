@@ -928,7 +928,7 @@ class AnalysisService:
             parts.append("AND type IN %(ql_types)s")
             params['ql_types'] = types
         if databases:
-            parts.append("AND hasAny(databases, %(ql_dbs)s)")
+            parts.append("AND arrayExists(x -> x IN %(ql_dbs)s, databases)")
             params['ql_dbs'] = databases
         if query_patterns:
             for i, p in enumerate(query_patterns):
