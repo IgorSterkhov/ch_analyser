@@ -418,9 +418,10 @@ def _render_query_logs(filters: dict):
     with ui.card().classes('w-full').props('flat bordered').style('margin-bottom: 2px; gap: 0; padding: 2px 8px'):
         # ── COLUMNS row (first) ──
         with ui.row().classes('w-full items-center gap-2').style('padding: 2px 0; flex-wrap: wrap'):
+            ui.element('div').style('width: 24px; flex-shrink: 0')
             ui.label('COLUMNS').classes(
                 'text-caption text-weight-bold text-grey-8'
-            ).style('white-space: nowrap; letter-spacing: 0.5px; min-width: 90px; text-align: right')
+            ).style('white-space: nowrap; letter-spacing: 0.5px')
             ui.separator().props('vertical').classes('q-mx-xs').style('height: 16px')
             col_toggle_container = ui.element('div').classes('flex flex-wrap items-center gap-0')
 
@@ -428,9 +429,10 @@ def _render_query_logs(filters: dict):
 
         # ── MODE row (second) ──
         with ui.row().classes('w-full items-center gap-2').style('padding: 2px 0; flex-wrap: wrap'):
+            ui.element('div').style('width: 24px; flex-shrink: 0')
             ui.label('MODE').classes(
                 'text-caption text-weight-bold text-grey-8'
-            ).style('white-space: nowrap; letter-spacing: 0.5px; min-width: 90px; text-align: right')
+            ).style('white-space: nowrap; letter-spacing: 0.5px')
             ui.separator().props('vertical').classes('q-mx-xs').style('height: 16px')
 
             def _set_mode(m):
