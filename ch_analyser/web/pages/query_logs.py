@@ -233,181 +233,190 @@ def _render_query_logs(filters: dict):
     # UI Layout
     # ══════════════════════════════════════════════
 
-    # ── Collapse toggle + WHERE summary ──
-    with ui.row().classes('w-full items-center gap-2').style('margin-bottom: 4px'):
-        def _toggle_collapse():
-            filters_collapsed[0] = not filters_collapsed[0]
-            filters_container.set_visibility(not filters_collapsed[0])
-            collapse_btn.props(f'icon={"unfold_more" if filters_collapsed[0] else "unfold_less"}')
-            collapse_btn.update()
-            where_label.set_visibility(filters_collapsed[0])
+    # ── Filters card ──
+    with ui.card().classes('w-full q-mb-sm').props('flat bordered'):
+        # Header row (always visible)
+        with ui.row().classes('w-full items-center gap-2 q-pa-sm no-wrap'):
+            def _toggle_collapse():
+                filters_collapsed[0] = not filters_collapsed[0]
+                is_collapsed = filters_collapsed[0]
+                filters_container.set_visibility(not is_collapsed)
+                header_sep.set_visibility(not is_collapsed)
+                collapse_btn.props(f'icon={"unfold_more" if is_collapsed else "unfold_less"}')
+                collapse_btn.update()
 
-        collapse_btn = ui.button(icon='unfold_less', on_click=_toggle_collapse).props(
-            'flat dense size=sm color=grey-7'
-        ).tooltip('Collapse/expand filters')
-        ui.label('WHERE').classes('text-caption text-grey-5').style('white-space: nowrap')
-        where_label = ui.label(_build_where_text()).classes(
-            'text-caption text-grey-7'
-        ).style('overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1')
-        where_label.set_visibility(False)
+            collapse_btn = ui.button(icon='unfold_less', on_click=_toggle_collapse).props(
+                'flat dense color=primary size=sm'
+            ).tooltip('Collapse/expand filters')
+            ui.label('FILTERS').classes(
+                'text-caption text-weight-bold text-grey-8'
+            ).style('white-space: nowrap; letter-spacing: 0.5px')
+            ui.separator().props('vertical').classes('q-mx-xs').style('height: 16px')
+            ui.label('WHERE').classes('text-caption text-grey-5').style('white-space: nowrap')
+            where_label = ui.label(_build_where_text()).classes(
+                'text-caption text-grey-7'
+            ).style('word-break: break-all; flex: 1')
 
-    # ── Filters container ──
-    filters_container = ui.column().classes('w-full gap-0')
-    with filters_container:
-        # Toggle-button filter rows
-        user_buttons = _render_filter_row('User', all_users, active_users)
-        kind_buttons = _render_filter_row('Kind', all_kinds, active_kinds)
-        type_buttons = _render_filter_row('Type', all_types, active_types)
-        db_buttons = _render_filter_row('DB', all_databases, active_dbs)
+        header_sep = ui.separator().classes('q-mb-xs')
 
-        # ── Date filter ──
-        with ui.row().classes('w-full items-center gap-2').style('margin-bottom: 2px'):
-            ui.label('Date:').classes('text-caption text-grey-7').style(
-                'white-space: nowrap; min-width: 40px'
-            )
+        # Filters body
+        filters_container = ui.column().classes('w-full gap-0 q-pa-sm q-pt-none')
+        with filters_container:
+            # Toggle-button filter rows
+            user_buttons = _render_filter_row('User', all_users, active_users)
+            kind_buttons = _render_filter_row('Kind', all_kinds, active_kinds)
+            type_buttons = _render_filter_row('Type', all_types, active_types)
+            db_buttons = _render_filter_row('DB', all_databases, active_dbs)
 
-            date_inputs = ui.element('div').classes('flex items-center gap-2')
+            # ── Date filter ──
+            with ui.row().classes('w-full items-center gap-2').style('margin-bottom: 2px'):
+                ui.label('Date:').classes('text-caption text-grey-7').style(
+                    'white-space: nowrap; min-width: 40px'
+                )
 
-            def _rebuild_date_inputs():
-                date_inputs.clear()
-                df = date_filter[0]
-                m = df.get('mode', 'relative')
-                with date_inputs:
-                    if m == 'relative':
-                        num = ui.number(value=df.get('value', 7), min=1).props('dense').style(
-                            'width: 70px'
-                        ).tooltip('Number of time units')
-                        unit_sel = ui.select(
-                            ['hours', 'days', 'months'],
-                            value=df.get('unit', 'day') + 's' if df.get('unit', 'day') + 's' in ('hours', 'days', 'months') else 'days',
-                        ).props('dense borderless').style('min-width: 90px').tooltip('Time unit')
+                date_inputs = ui.element('div').classes('flex items-center gap-2')
 
-                        def _on_relative_change():
-                            date_filter[0] = {
-                                'mode': 'relative',
-                                'value': int(num.value or 7),
-                                'unit': (unit_sel.value or 'days').rstrip('s'),
-                            }
-                            _refresh()
+                def _rebuild_date_inputs():
+                    date_inputs.clear()
+                    df = date_filter[0]
+                    m = df.get('mode', 'relative')
+                    with date_inputs:
+                        if m == 'relative':
+                            num = ui.number(value=df.get('value', 7), min=1).props('dense').style(
+                                'width: 70px'
+                            ).tooltip('Number of time units')
+                            unit_sel = ui.select(
+                                ['hours', 'days', 'months'],
+                                value=df.get('unit', 'day') + 's' if df.get('unit', 'day') + 's' in ('hours', 'days', 'months') else 'days',
+                            ).props('dense borderless').style('min-width: 90px').tooltip('Time unit')
 
-                        num.on('blur', lambda: _on_relative_change())
-                        unit_sel.on_value_change(lambda e: _on_relative_change())
+                            def _on_relative_change():
+                                date_filter[0] = {
+                                    'mode': 'relative',
+                                    'value': int(num.value or 7),
+                                    'unit': (unit_sel.value or 'days').rstrip('s'),
+                                }
+                                _refresh()
 
-                    elif m == 'date':
-                        dinp = ui.input(value=df.get('date', str(date.today()))).props(
-                            'dense type=date'
-                        ).style('width: 160px').tooltip('Select date')
+                            num.on('blur', lambda: _on_relative_change())
+                            unit_sel.on_value_change(lambda e: _on_relative_change())
 
-                        def _on_date_change(e):
-                            date_filter[0] = {'mode': 'date', 'date': e.value}
-                            _refresh()
-                        dinp.on('change', _on_date_change)
+                        elif m == 'date':
+                            dinp = ui.input(value=df.get('date', str(date.today()))).props(
+                                'dense type=date'
+                            ).style('width: 160px').tooltip('Select date')
 
-                    elif m == 'range':
-                        finp = ui.input(
-                            value=df.get('from', str(date.today())), label='From'
-                        ).props('dense type=date').style('width: 160px').tooltip('Start date')
-                        tinp = ui.input(
-                            value=df.get('to', str(date.today())), label='To'
-                        ).props('dense type=date').style('width: 160px').tooltip('End date')
+                            def _on_date_change(e):
+                                date_filter[0] = {'mode': 'date', 'date': e.value}
+                                _refresh()
+                            dinp.on('change', _on_date_change)
 
-                        def _on_range_change(_=None):
-                            date_filter[0] = {
-                                'mode': 'range',
-                                'from': finp.value,
-                                'to': tinp.value,
-                            }
-                            _refresh()
-                        finp.on('change', _on_range_change)
-                        tinp.on('change', _on_range_change)
+                        elif m == 'range':
+                            finp = ui.input(
+                                value=df.get('from', str(date.today())), label='From'
+                            ).props('dense type=date').style('width: 160px').tooltip('Start date')
+                            tinp = ui.input(
+                                value=df.get('to', str(date.today())), label='To'
+                            ).props('dense type=date').style('width: 160px').tooltip('End date')
 
-            def _on_date_mode_change(e):
-                new_mode = e.value.lower()
-                date_filter[0] = {'mode': new_mode}
-                if new_mode == 'relative':
-                    date_filter[0].update({'value': state.query_log_days, 'unit': 'day'})
-                elif new_mode == 'date':
-                    date_filter[0]['date'] = str(date.today())
-                elif new_mode == 'range':
-                    date_filter[0]['from'] = str(date.today())
-                    date_filter[0]['to'] = str(date.today())
+                            def _on_range_change(_=None):
+                                date_filter[0] = {
+                                    'mode': 'range',
+                                    'from': finp.value,
+                                    'to': tinp.value,
+                                }
+                                _refresh()
+                            finp.on('change', _on_range_change)
+                            tinp.on('change', _on_range_change)
+
+                def _on_date_mode_change(e):
+                    new_mode = e.value.lower()
+                    date_filter[0] = {'mode': new_mode}
+                    if new_mode == 'relative':
+                        date_filter[0].update({'value': state.query_log_days, 'unit': 'day'})
+                    elif new_mode == 'date':
+                        date_filter[0]['date'] = str(date.today())
+                    elif new_mode == 'range':
+                        date_filter[0]['from'] = str(date.today())
+                        date_filter[0]['to'] = str(date.today())
+                    _rebuild_date_inputs()
+                    _refresh()
+
+                ui.select(
+                    ['Relative', 'Date', 'Range'],
+                    value='Relative',
+                    on_change=_on_date_mode_change,
+                ).props('dense borderless').style('min-width: 100px').tooltip('Date filter mode')
+
                 _rebuild_date_inputs()
-                _refresh()
 
-            ui.select(
-                ['Relative', 'Date', 'Range'],
-                value='Relative',
-                on_change=_on_date_mode_change,
-            ).props('dense borderless').style('min-width: 100px').tooltip('Date filter mode')
+            # ── Query LIKE/NOT LIKE patterns ──
+            with ui.row().classes('w-full items-start gap-1 no-wrap').style('margin-bottom: 2px'):
+                ui.label('Query:').classes('text-caption text-grey-7').style(
+                    'line-height: 28px; white-space: nowrap; min-width: 40px'
+                )
 
-            _rebuild_date_inputs()
-
-        # ── Query LIKE/NOT LIKE patterns ──
-        with ui.row().classes('w-full items-start gap-1 no-wrap').style('margin-bottom: 2px'):
-            ui.label('Query:').classes('text-caption text-grey-7').style(
-                'line-height: 28px; white-space: nowrap; min-width: 40px'
-            )
-
-            def _add_pattern():
-                query_patterns.append({'text': '', 'negate': False})
-                _rebuild_patterns()
-
-            ui.button(icon='add', on_click=_add_pattern).props(
-                'flat dense size=sm color=grey-7'
-            ).tooltip('Add LIKE/NOT LIKE pattern')
-
-            patterns_container = ui.column().classes('gap-1')
-
-        def _rebuild_patterns():
-            patterns_container.clear()
-            with patterns_container:
-                for i, p in enumerate(query_patterns):
-                    _render_pattern_row(i, p)
-
-        def _render_pattern_row(idx, p):
-            with ui.row().classes('items-center gap-1'):
-                label = 'NOT LIKE' if p.get('negate') else 'LIKE'
-                color = 'negative' if p.get('negate') else 'primary'
-
-                def _toggle_negate(i=idx):
-                    query_patterns[i]['negate'] = not query_patterns[i]['negate']
+                def _add_pattern():
+                    query_patterns.append({'text': '', 'negate': False})
                     _rebuild_patterns()
-                    _refresh()
 
-                ui.button(label, on_click=_toggle_negate).props(
-                    f'dense no-caps size=sm push color={color}'
-                ).tooltip('Toggle LIKE / NOT LIKE')
-
-                pinp = ui.input(value=p.get('text', ''), placeholder='pattern...').props(
-                    'dense clearable'
-                ).style('width: 200px').tooltip('Search pattern (substring)')
-
-                def _on_text(e, i=idx):
-                    query_patterns[i]['text'] = e.args or ''
-
-                def _on_text_enter(i=idx):
-                    _refresh()
-
-                pinp.on('update:model-value', _on_text)
-                pinp.on('keydown.enter', _on_text_enter)
-                pinp.on('clear', lambda i=idx: (query_patterns.__setitem__(i, {**query_patterns[i], 'text': ''}), _refresh()))
-
-                def _remove(i=idx):
-                    query_patterns.pop(i)
-                    _rebuild_patterns()
-                    _refresh()
-
-                ui.button(icon='close', on_click=_remove).props(
+                ui.button(icon='add', on_click=_add_pattern).props(
                     'flat dense size=sm color=grey-7'
-                ).tooltip('Remove pattern')
+                ).tooltip('Add LIKE/NOT LIKE pattern')
 
-            # Apply button for this pattern
-            ui.button(icon='search', on_click=_refresh).props(
-                'flat dense size=sm color=primary'
-            ).tooltip('Apply pattern filter')
+                patterns_container = ui.column().classes('gap-1')
 
-    # ── Mode + Columns + Controls row ──
-    with ui.row().classes('w-full items-center gap-2 q-mt-xs').style('margin-bottom: 2px; flex-wrap: wrap'):
+            def _rebuild_patterns():
+                patterns_container.clear()
+                with patterns_container:
+                    for i, p in enumerate(query_patterns):
+                        _render_pattern_row(i, p)
+
+            def _render_pattern_row(idx, p):
+                with ui.row().classes('items-center gap-1'):
+                    label = 'NOT LIKE' if p.get('negate') else 'LIKE'
+                    color = 'negative' if p.get('negate') else 'primary'
+
+                    def _toggle_negate(i=idx):
+                        query_patterns[i]['negate'] = not query_patterns[i]['negate']
+                        _rebuild_patterns()
+                        _refresh()
+
+                    ui.button(label, on_click=_toggle_negate).props(
+                        f'dense no-caps size=sm push color={color}'
+                    ).tooltip('Toggle LIKE / NOT LIKE')
+
+                    pinp = ui.input(value=p.get('text', ''), placeholder='pattern...').props(
+                        'dense clearable'
+                    ).style('width: 200px').tooltip('Search pattern (substring)')
+
+                    def _on_text(e, i=idx):
+                        query_patterns[i]['text'] = e.args or ''
+
+                    def _on_text_enter(i=idx):
+                        _refresh()
+
+                    pinp.on('update:model-value', _on_text)
+                    pinp.on('keydown.enter', _on_text_enter)
+                    pinp.on('clear', lambda i=idx: (query_patterns.__setitem__(i, {**query_patterns[i], 'text': ''}), _refresh()))
+
+                    def _remove(i=idx):
+                        query_patterns.pop(i)
+                        _rebuild_patterns()
+                        _refresh()
+
+                    ui.button(icon='close', on_click=_remove).props(
+                        'flat dense size=sm color=grey-7'
+                    ).tooltip('Remove pattern')
+
+                # Apply button for this pattern
+                ui.button(icon='search', on_click=_refresh).props(
+                    'flat dense size=sm color=primary'
+                ).tooltip('Apply pattern filter')
+
+    # ── Controls card ──
+    with ui.card().classes('w-full q-mb-sm').props('flat bordered'):
+      with ui.row().classes('w-full items-center gap-2 q-pa-sm').style('flex-wrap: wrap'):
         # Mode toggle
         ui.label('Mode:').classes('text-caption text-grey-7')
 
@@ -466,8 +475,9 @@ def _render_query_logs(filters: dict):
             'flat dense color=primary'
         ).tooltip('Reload data')
 
-    # ── Column visibility toggles ──
-    col_toggle_container = ui.element('div').classes('flex flex-wrap items-center gap-0 q-mb-xs')
+      # ── Column visibility toggles (inside Controls card) ──
+      ui.separator()
+      col_toggle_container = ui.element('div').classes('flex flex-wrap items-center gap-0 q-pa-sm')
 
     col_toggle_buttons: dict = {}
 
