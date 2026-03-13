@@ -23,7 +23,7 @@ _NiceGuiElement.tooltip = _tooltip_above
 CLIPBOARD_JS = '''
 <script>
 window.copyToClipboard = function(text) {
-    function fallback(text) {
+    function fallback() {
         var ta = document.createElement('textarea');
         ta.value = text;
         ta.style.cssText = 'position:fixed;left:-9999px;top:0';
@@ -35,21 +35,25 @@ window.copyToClipboard = function(text) {
         document.body.removeChild(ta);
         return ok;
     }
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(function() {
-            Quasar.Notify.create({type: 'positive', message: 'Copied', timeout: 1000});
-        }).catch(function() {
-            if (fallback(text)) {
-                Quasar.Notify.create({type: 'positive', message: 'Copied', timeout: 1000});
-            } else {
-                window.prompt('Copy manually (Ctrl+C):', text);
-            }
-        });
-    } else if (fallback(text)) {
-        Quasar.Notify.create({type: 'positive', message: 'Copied', timeout: 1000});
-    } else {
-        window.prompt('Copy manually (Ctrl+C):', text);
+    function notify() {
+        try { Quasar.Notify.create({type:'positive', message:'Copied', timeout:1000}); } catch(e) {}
     }
+    function doFallback() {
+        if (fallback()) { notify(); } else { window.prompt('Copy manually (Ctrl+C):', text); }
+    }
+    try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            var settled = false;
+            navigator.clipboard.writeText(text).then(function() {
+                settled = true; notify();
+            }).catch(function() {
+                settled = true; doFallback();
+            });
+            setTimeout(function() { if (!settled) doFallback(); }, 500);
+            return;
+        }
+    } catch(e) {}
+    doFallback();
 }
 </script>
 '''
