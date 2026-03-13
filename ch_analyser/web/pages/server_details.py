@@ -23,6 +23,7 @@ from ch_analyser.web.pages._shared import (
     apply_text_filter, export_table_csv, export_table_excel,
     PAGINATION_SLOT, HEADER_CELL_TOOLTIP_SLOT,
 )
+from ch_analyser.web.pages.query_logs import load_query_logs
 
 
 @dataclass
@@ -33,6 +34,7 @@ class ServerDetailsContext:
     right_drawer: object = None
     drawer_title: ui.label = None
     text_logs_panel: ui.column = None
+    query_logs_panel: ui.column = None
     users_panel: ui.column = None
     main_tabs_loaded: set = field(default_factory=set)
     connection_select: ui.select = None
@@ -85,6 +87,7 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
             tables_main_tab = ui.tab('Tables', icon='table_chart').tooltip('Table list and sizes')
             users_main_tab = ui.tab('Users', icon='people').tooltip('User activity stats')
             text_logs_main_tab = ui.tab('Text Logs', icon='article').tooltip('Server error logs')
+            query_logs_main_tab = ui.tab('Query Logs', icon='manage_search').tooltip('Server-wide query log')
 
         with ui.tab_panels(main_tabs, value=tables_main_tab).classes(
             'w-full q-pt-none flex-grow'
@@ -101,11 +104,15 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
                 ctx.text_logs_panel = ui.column().classes('w-full')
                 with ctx.text_logs_panel:
                     ui.label('Select a connection above.').classes('text-grey-7')
+            with ui.tab_panel(query_logs_main_tab).classes('q-pa-xs'):
+                ctx.query_logs_panel = ui.column().classes('w-full')
+                with ctx.query_logs_panel:
+                    ui.label('Select a connection above.').classes('text-grey-7')
 
         def _on_main_tab_change(e):
             tab = e.value
             ctx.active_main_tab = tab
-            if tab == 'Text Logs':
+            if tab in ('Text Logs', 'Query Logs'):
                 if ctx.right_drawer and hasattr(ctx.right_drawer, 'value') and ctx.right_drawer.value:
                     ctx.right_drawer.hide()
                 ui.run_javascript(
@@ -121,6 +128,9 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
             if tab == 'Text Logs' and 'Text Logs' not in ctx.main_tabs_loaded and state.service:
                 ctx.main_tabs_loaded.add('Text Logs')
                 background_tasks.create(_load_text_logs(ctx))
+            if tab == 'Query Logs' and 'Query Logs' not in ctx.main_tabs_loaded and state.service:
+                ctx.main_tabs_loaded.add('Query Logs')
+                background_tasks.create(load_query_logs(ctx))
             ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
         main_tabs.on_value_change(_on_main_tab_change)
@@ -221,6 +231,14 @@ async def _on_connect_async(cfg, ctx: ServerDetailsContext):
             ctx.text_logs_panel.clear()
             with ctx.text_logs_panel:
                 ui.label('Switch to Text Logs tab to load.').classes('text-grey-7')
+
+        if ctx.active_main_tab == 'Query Logs':
+            ctx.main_tabs_loaded.add('Query Logs')
+            await load_query_logs(ctx)
+        elif ctx.query_logs_panel:
+            ctx.query_logs_panel.clear()
+            with ctx.query_logs_panel:
+                ui.label('Switch to Query Logs tab to load.').classes('text-grey-7')
 
     except Exception as ex:
         _connecting_name = None

@@ -76,6 +76,16 @@ git diff <hash>..HEAD
 git rev-parse HEAD > .claude/last-docs-update
 ```
 
+## Шаг 6: Предложи сообщение для коммита
+
+Выведи готовое сообщение для коммита в одну строку на английском языке, кратко описывающее что именно было добавлено/обновлено в документации. Формат:
+
+```
+Commit message: Update docs: <краткое перечисление изменений>
+```
+
+Например: `Update docs: add export feature, schema filter, flow navigation to user guide and releases`
+
 ## Важные правила
 
 - **Язык**: вся документация на русском языке

@@ -840,3 +840,229 @@ class AnalysisService:
         except Exception as e:
             logger.error("Failed to get text_log detail for thread %s: %s", thread_name, e)
             return []
+
+    # ── Query Logs (server-wide) ──
+
+    def get_query_logs_filters(self, log_days: int = QUERY_LOG_DAYS_DEFAULT) -> dict:
+        """Get distinct filter values for the server-wide query log tab."""
+        base_where = (
+            "type IN ('QueryFinish', 'ExceptionWhileProcessing') "
+            f"AND event_date >= today() - INTERVAL {int(log_days)} DAY"
+        )
+        result: dict = {"users": [], "query_kinds": [], "types": [], "databases": []}
+        try:
+            rows = self._client.execute(
+                f"SELECT DISTINCT user FROM system.query_log WHERE {base_where} ORDER BY user"
+            )
+            result["users"] = [r["user"] for r in rows]
+        except Exception as e:
+            logger.error("Failed to get query_logs filter users: %s", e)
+        try:
+            rows = self._client.execute(
+                f"SELECT DISTINCT query_kind FROM system.query_log WHERE {base_where} ORDER BY query_kind"
+            )
+            result["query_kinds"] = [r["query_kind"] for r in rows]
+        except Exception as e:
+            logger.error("Failed to get query_logs filter query_kinds: %s", e)
+        try:
+            rows = self._client.execute(
+                f"SELECT DISTINCT type FROM system.query_log WHERE {base_where} ORDER BY type"
+            )
+            result["types"] = [r["type"] for r in rows]
+        except Exception as e:
+            logger.error("Failed to get query_logs filter types: %s", e)
+        try:
+            rows = self._client.execute(
+                "SELECT DISTINCT arrayJoin(databases) AS db FROM system.query_log "
+                f"WHERE {base_where} ORDER BY db"
+            )
+            result["databases"] = [r["db"] for r in rows]
+        except Exception as e:
+            logger.error("Failed to get query_logs filter databases: %s", e)
+        return result
+
+    def _build_query_logs_where(
+        self,
+        log_days: int,
+        users: list[str] | None = None,
+        query_kinds: list[str] | None = None,
+        types: list[str] | None = None,
+        databases: list[str] | None = None,
+        query_patterns: list[dict] | None = None,
+        event_date_filter: dict | None = None,
+    ) -> tuple[str, dict]:
+        """Build WHERE clause and params for query_logs queries."""
+        parts = [
+            "type IN ('QueryFinish', 'ExceptionWhileProcessing')"
+        ]
+        params: dict = {}
+
+        # Date filter
+        if event_date_filter:
+            mode = event_date_filter.get('mode')
+            if mode == 'relative':
+                val = int(event_date_filter['value'])
+                unit = event_date_filter['unit'].upper()
+                if unit not in ('HOUR', 'DAY', 'MONTH'):
+                    unit = 'DAY'
+                parts.append(f"AND event_time > now() - INTERVAL {val} {unit}")
+            elif mode == 'date':
+                parts.append("AND event_date = %(flt_date)s")
+                params['flt_date'] = event_date_filter['date']
+            elif mode == 'range':
+                parts.append("AND event_date >= %(flt_from)s AND event_date <= %(flt_to)s")
+                params['flt_from'] = event_date_filter['from']
+                params['flt_to'] = event_date_filter['to']
+            else:
+                parts.append(f"AND event_date >= today() - INTERVAL {int(log_days)} DAY")
+        else:
+            parts.append(f"AND event_date >= today() - INTERVAL {int(log_days)} DAY")
+
+        if users:
+            parts.append("AND user IN %(ql_users)s")
+            params['ql_users'] = users
+        if query_kinds:
+            parts.append("AND query_kind IN %(ql_kinds)s")
+            params['ql_kinds'] = query_kinds
+        if types:
+            parts.append("AND type IN %(ql_types)s")
+            params['ql_types'] = types
+        if databases:
+            parts.append("AND hasAny(databases, %(ql_dbs)s)")
+            params['ql_dbs'] = databases
+        if query_patterns:
+            for i, p in enumerate(query_patterns):
+                text = p.get('text', '')
+                if not text:
+                    continue
+                pkey = f'ql_pat_{i}'
+                if p.get('negate'):
+                    parts.append(f"AND query NOT LIKE concat('%%', %({pkey})s, '%%')")
+                else:
+                    parts.append(f"AND query LIKE concat('%%', %({pkey})s, '%%')")
+                params[pkey] = text
+
+        return ' '.join(parts), params
+
+    def get_query_logs(
+        self,
+        log_days: int = QUERY_LOG_DAYS_DEFAULT,
+        limit: int = 200,
+        users: list[str] | None = None,
+        query_kinds: list[str] | None = None,
+        types: list[str] | None = None,
+        databases: list[str] | None = None,
+        query_patterns: list[dict] | None = None,
+        event_date_filter: dict | None = None,
+    ) -> list[dict]:
+        """Get individual query log entries for the entire server."""
+        where, params = self._build_query_logs_where(
+            log_days, users, query_kinds, types, databases,
+            query_patterns, event_date_filter,
+        )
+        sql = (
+            "SELECT event_time, user, query_kind, type, "
+            "  query_duration_ms, "
+            "  round(read_rows / 1000) AS read_k_rows, "
+            "  round((read_bytes / 1024) / 1024) AS read_mbytes, "
+            "  round((memory_usage / 1024) / 1024) AS mb_mem, "
+            "  query, exception, exception_code "
+            f"FROM system.query_log WHERE {where} "
+            f"ORDER BY event_time DESC LIMIT {int(limit)}"
+        )
+        try:
+            rows = self._client.execute(sql, params)
+            for r in rows:
+                r['event_time'] = str(r['event_time'])
+            return rows
+        except Exception as e:
+            logger.error("Failed to get query_logs: %s", e)
+            return []
+
+    def get_query_logs_grouped(
+        self,
+        log_days: int = QUERY_LOG_DAYS_DEFAULT,
+        users: list[str] | None = None,
+        query_kinds: list[str] | None = None,
+        types: list[str] | None = None,
+        databases: list[str] | None = None,
+        query_patterns: list[dict] | None = None,
+        event_date_filter: dict | None = None,
+    ) -> list[dict]:
+        """Get query log entries grouped by normalized_query_hash."""
+        where, params = self._build_query_logs_where(
+            log_days, users, query_kinds, types, databases,
+            query_patterns, event_date_filter,
+        )
+        sql = (
+            "SELECT normalized_query_hash, "
+            "  any(query) AS sample_query, "
+            "  any(user) AS sample_user, "
+            "  count() AS query_count, "
+            "  countIf(exception_code != 0) AS error_count, "
+            "  max(event_time) AS last_time, "
+            "  sum(query_duration_ms) AS total_duration_ms, "
+            "  round(sum(read_rows) / 1000) AS total_read_k_rows, "
+            "  round(sum(read_bytes / 1024) / 1024) AS total_read_mbytes, "
+            "  round(max(memory_usage / 1024) / 1024) AS peak_mb_mem, "
+            "  argMax(exception, event_time) AS last_exception "
+            f"FROM system.query_log WHERE {where} "
+            "GROUP BY normalized_query_hash ORDER BY query_count DESC"
+        )
+        try:
+            rows = self._client.execute(sql, params)
+            for r in rows:
+                r['last_time'] = str(r['last_time'])
+            return rows
+        except Exception as e:
+            logger.error("Failed to get grouped query_logs: %s", e)
+            return []
+
+    def get_query_logs_sql(
+        self,
+        log_days: int = QUERY_LOG_DAYS_DEFAULT,
+        limit: int = 200,
+        users: list[str] | None = None,
+        query_kinds: list[str] | None = None,
+        types: list[str] | None = None,
+        databases: list[str] | None = None,
+        query_patterns: list[dict] | None = None,
+        event_date_filter: dict | None = None,
+        grouped: bool = False,
+    ) -> str:
+        """Return the raw SQL string for the query logs query (for 'Show SQL')."""
+        where, params = self._build_query_logs_where(
+            log_days, users, query_kinds, types, databases,
+            query_patterns, event_date_filter,
+        )
+        if grouped:
+            sql = (
+                "SELECT normalized_query_hash, "
+                "any(query) AS sample_query, any(user) AS sample_user, "
+                "count() AS query_count, countIf(exception_code != 0) AS error_count, "
+                "max(event_time) AS last_time, sum(query_duration_ms) AS total_duration_ms, "
+                "round(sum(read_rows) / 1000) AS total_read_k_rows, "
+                "round(sum(read_bytes / 1024) / 1024) AS total_read_mbytes, "
+                "round(max(memory_usage / 1024) / 1024) AS peak_mb_mem, "
+                "argMax(exception, event_time) AS last_exception "
+                f"FROM system.query_log WHERE {where} "
+                "GROUP BY normalized_query_hash ORDER BY query_count DESC"
+            )
+        else:
+            sql = (
+                "SELECT event_time, user, query_kind, type, "
+                "query_duration_ms, round(read_rows / 1000) AS read_k_rows, "
+                "round((read_bytes / 1024) / 1024) AS read_mbytes, "
+                "round((memory_usage / 1024) / 1024) AS mb_mem, "
+                "query, exception, exception_code "
+                f"FROM system.query_log WHERE {where} "
+                f"ORDER BY event_time DESC LIMIT {int(limit)}"
+            )
+        for k, v in params.items():
+            placeholder = f'%({k})s'
+            if isinstance(v, list):
+                formatted = '(' + ', '.join(f"'{x}'" for x in v) + ')'
+            else:
+                formatted = f"'{v}'"
+            sql = sql.replace(placeholder, formatted)
+        return sql
