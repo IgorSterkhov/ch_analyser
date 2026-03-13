@@ -88,7 +88,8 @@ def _render_query_logs(filters: dict):
     active_users = set(all_users)
     active_kinds = set(all_kinds)
     active_types = set(all_types)
-    active_dbs = set(all_databases)
+    _SYSTEM_DBS = {'INFORMATION_SCHEMA', 'information_schema', 'meta', 'system'}
+    active_dbs = set(all_databases) - _SYSTEM_DBS
 
     date_filter = [{'mode': 'relative', 'value': state.query_log_days, 'unit': 'day'}]
     query_patterns: list[dict] = []  # [{'text': str, 'negate': bool}]
@@ -221,7 +222,10 @@ def _render_query_logs(filters: dict):
             with ui.element('div').classes('flex flex-wrap gap-0'):
                 for v in values:
                     btn = ui.button(v, on_click=lambda v=v: toggle(v))
-                    btn.props('push color=primary text-color=white no-caps size=sm')
+                    if v in active_set:
+                        btn.props('push color=primary text-color=white no-caps size=sm')
+                    else:
+                        btn.props('push color=grey-4 text-color=grey-8 no-caps size=sm')
                     buttons[v] = btn
         return buttons
 
