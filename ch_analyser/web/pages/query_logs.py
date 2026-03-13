@@ -234,9 +234,9 @@ def _render_query_logs(filters: dict):
     # ══════════════════════════════════════════════
 
     # ── Filters card ──
-    with ui.card().classes('w-full q-mb-sm').props('flat bordered'):
+    with ui.card().classes('w-full q-mb-xs').props('flat bordered'):
         # Header row (always visible)
-        with ui.row().classes('w-full items-center gap-2 q-pa-sm no-wrap'):
+        with ui.row().classes('w-full items-center gap-2 q-pa-xs no-wrap'):
             def _toggle_collapse():
                 filters_collapsed[0] = not filters_collapsed[0]
                 is_collapsed = filters_collapsed[0]
@@ -415,69 +415,75 @@ def _render_query_logs(filters: dict):
                 ).tooltip('Apply pattern filter')
 
     # ── Controls card ──
-    with ui.card().classes('w-full q-mb-sm').props('flat bordered'):
-      with ui.row().classes('w-full items-center gap-2 q-pa-sm').style('flex-wrap: wrap'):
-        # Mode toggle
-        ui.label('Mode:').classes('text-caption text-grey-7')
+    with ui.card().classes('w-full q-mb-xs').props('flat bordered'):
+        # ── COLUMNS row (first) ──
+        with ui.row().classes('w-full items-center gap-2 q-pa-xs').style('flex-wrap: wrap'):
+            ui.label('COLUMNS').classes(
+                'text-caption text-weight-bold text-grey-8'
+            ).style('white-space: nowrap; letter-spacing: 0.5px')
+            ui.separator().props('vertical').classes('q-mx-xs').style('height: 16px')
+            col_toggle_container = ui.element('div').classes('flex flex-wrap items-center gap-0')
 
-        def _set_mode(m):
-            mode[0] = m
-            _rebuild_col_toggles()
-            _refresh()
-            mode_all_btn.props(f'push color={"primary" if m == "all" else "grey-4"} text-color={"white" if m == "all" else "grey-8"}')
-            mode_grp_btn.props(f'push color={"primary" if m == "grouped" else "grey-4"} text-color={"white" if m == "grouped" else "grey-8"}')
-            mode_all_btn.update()
-            mode_grp_btn.update()
+        ui.separator()
 
-        mode_all_btn = ui.button('All queries', on_click=lambda: _set_mode('all')).props(
-            'push color=primary text-color=white dense no-caps size=sm'
-        ).tooltip('Show individual queries')
-        mode_grp_btn = ui.button('Grouped', on_click=lambda: _set_mode('grouped')).props(
-            'push color=grey-4 text-color=grey-8 dense no-caps size=sm'
-        ).tooltip('Group by normalized query hash')
+        # ── MODE row (second) ──
+        with ui.row().classes('w-full items-center gap-2 q-pa-xs').style('flex-wrap: wrap'):
+            ui.label('MODE').classes(
+                'text-caption text-weight-bold text-grey-8'
+            ).style('white-space: nowrap; letter-spacing: 0.5px')
+            ui.separator().props('vertical').classes('q-mx-xs').style('height: 16px')
 
-        ui.separator().props('vertical').classes('q-mx-xs')
+            def _set_mode(m):
+                mode[0] = m
+                _rebuild_col_toggles()
+                _refresh()
+                mode_all_btn.props(f'push color={"primary" if m == "all" else "grey-4"} text-color={"white" if m == "all" else "grey-8"}')
+                mode_grp_btn.props(f'push color={"primary" if m == "grouped" else "grey-4"} text-color={"white" if m == "grouped" else "grey-8"}')
+                mode_all_btn.update()
+                mode_grp_btn.update()
 
-        # Limit
-        ui.label('Limit:').classes('text-caption text-grey-7')
-        ui.select(
-            [50, 100, 200, 500, 1000], value=200,
-            on_change=lambda e: (current_limit.__setitem__(0, e.value), _refresh()),
-        ).props('dense borderless').style('min-width: 80px').tooltip('Max results')
+            mode_all_btn = ui.button('All queries', on_click=lambda: _set_mode('all')).props(
+                'push color=primary text-color=white dense no-caps size=sm'
+            ).tooltip('Show individual queries')
+            mode_grp_btn = ui.button('Grouped', on_click=lambda: _set_mode('grouped')).props(
+                'push color=grey-4 text-color=grey-8 dense no-caps size=sm'
+            ).tooltip('Group by normalized query hash')
 
-        ui.separator().props('vertical').classes('q-mx-xs')
+            ui.separator().props('vertical').classes('q-mx-xs')
 
-        # Show SQL
-        def _show_sql():
-            kwargs = _build_filter_kwargs()
-            raw_sql = service.get_query_logs_sql(
-                limit=current_limit[0],
-                grouped=(mode[0] == 'grouped'),
-                **kwargs,
-            )
-            formatted = format_clickhouse_sql(raw_sql)
-            escaped = html.escape(formatted)
-            with ui.dialog() as dlg, ui.card().classes('w-full max-w-3xl q-pa-md'):
-                ui.label('Generated Query').classes('text-h6 q-mb-sm')
-                ui.html(f'<pre style="white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow:auto">{escaped}</pre>')
-                with ui.row().classes('w-full justify-end q-mt-md gap-2'):
-                    copy_js = f'() => window.copyToClipboard({json.dumps(formatted)})'
-                    ui.button('Copy', icon='content_copy').props('flat').on('click', js_handler=copy_js)
-                    ui.button('Close', on_click=dlg.close).props('flat')
-            dlg.open()
+            ui.label('Limit:').classes('text-caption text-grey-7')
+            ui.select(
+                [50, 100, 200, 500, 1000], value=200,
+                on_change=lambda e: (current_limit.__setitem__(0, e.value), _refresh()),
+            ).props('dense borderless').style('min-width: 80px').tooltip('Max results')
 
-        ui.button(icon='code', on_click=_show_sql).props(
-            'flat dense color=primary'
-        ).tooltip('Show generated SQL')
+            ui.separator().props('vertical').classes('q-mx-xs')
 
-        # Refresh
-        ui.button('Refresh', icon='refresh', on_click=_refresh).props(
-            'flat dense color=primary'
-        ).tooltip('Reload data')
+            def _show_sql():
+                kwargs = _build_filter_kwargs()
+                raw_sql = service.get_query_logs_sql(
+                    limit=current_limit[0],
+                    grouped=(mode[0] == 'grouped'),
+                    **kwargs,
+                )
+                formatted = format_clickhouse_sql(raw_sql)
+                escaped = html.escape(formatted)
+                with ui.dialog() as dlg, ui.card().classes('w-full max-w-3xl q-pa-md'):
+                    ui.label('Generated Query').classes('text-h6 q-mb-sm')
+                    ui.html(f'<pre style="white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow:auto">{escaped}</pre>')
+                    with ui.row().classes('w-full justify-end q-mt-md gap-2'):
+                        copy_js = f'() => window.copyToClipboard({json.dumps(formatted)})'
+                        ui.button('Copy', icon='content_copy').props('flat').on('click', js_handler=copy_js)
+                        ui.button('Close', on_click=dlg.close).props('flat')
+                dlg.open()
 
-      # ── Column visibility toggles (inside Controls card) ──
-      ui.separator()
-      col_toggle_container = ui.element('div').classes('flex flex-wrap items-center gap-0 q-pa-sm')
+            ui.button(icon='code', on_click=_show_sql).props(
+                'flat dense color=primary'
+            ).tooltip('Show generated SQL')
+
+            ui.button('Refresh', icon='refresh', on_click=_refresh).props(
+                'flat dense color=primary'
+            ).tooltip('Reload data')
 
     col_toggle_buttons: dict = {}
 
@@ -487,7 +493,6 @@ def _render_query_logs(filters: dict):
         vis = all_visible if mode[0] == 'all' else grp_visible
         cols = ALL_COLUMNS if mode[0] == 'all' else GROUPED_COLUMNS
         with col_toggle_container:
-            ui.label('Columns:').classes('text-caption text-grey-7 q-mr-xs')
             for cid, clabel, _ in cols:
                 def _toggle_col(c=cid):
                     vis[c] = not vis[c]
