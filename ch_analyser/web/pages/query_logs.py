@@ -234,9 +234,9 @@ def _render_query_logs(filters: dict):
     # ══════════════════════════════════════════════
 
     # ── Filters card ──
-    with ui.card().classes('w-full q-mb-xs').props('flat bordered'):
+    with ui.card().classes('w-full').props('flat bordered').style('margin-bottom: 2px; gap: 0; padding: 2px 8px'):
         # Header row (always visible)
-        with ui.row().classes('w-full items-center gap-2 q-pa-xs no-wrap'):
+        with ui.row().classes('w-full items-center gap-2 no-wrap').style('padding: 2px 0'):
             def _toggle_collapse():
                 filters_collapsed[0] = not filters_collapsed[0]
                 is_collapsed = filters_collapsed[0]
@@ -257,10 +257,10 @@ def _render_query_logs(filters: dict):
                 'text-caption text-grey-7'
             ).style('word-break: break-all; flex: 1')
 
-        header_sep = ui.separator().classes('q-mb-xs')
+        header_sep = ui.separator().style('margin: 0')
 
         # Filters body
-        filters_container = ui.column().classes('w-full gap-0 q-pa-sm q-pt-none')
+        filters_container = ui.column().classes('w-full gap-0').style('padding: 2px 0')
         with filters_container:
             # Toggle-button filter rows
             user_buttons = _render_filter_row('User', all_users, active_users)
@@ -415,22 +415,22 @@ def _render_query_logs(filters: dict):
                 ).tooltip('Apply pattern filter')
 
     # ── Controls card ──
-    with ui.card().classes('w-full q-mb-xs').props('flat bordered'):
+    with ui.card().classes('w-full').props('flat bordered').style('margin-bottom: 2px; gap: 0; padding: 2px 8px'):
         # ── COLUMNS row (first) ──
-        with ui.row().classes('w-full items-center gap-2 q-pa-xs').style('flex-wrap: wrap'):
+        with ui.row().classes('w-full items-center gap-2').style('padding: 2px 0; flex-wrap: wrap'):
             ui.label('COLUMNS').classes(
                 'text-caption text-weight-bold text-grey-8'
-            ).style('white-space: nowrap; letter-spacing: 0.5px')
+            ).style('white-space: nowrap; letter-spacing: 0.5px; min-width: 90px; text-align: right')
             ui.separator().props('vertical').classes('q-mx-xs').style('height: 16px')
             col_toggle_container = ui.element('div').classes('flex flex-wrap items-center gap-0')
 
-        ui.separator()
+        ui.separator().style('margin: 0')
 
         # ── MODE row (second) ──
-        with ui.row().classes('w-full items-center gap-2 q-pa-xs').style('flex-wrap: wrap'):
+        with ui.row().classes('w-full items-center gap-2').style('padding: 2px 0; flex-wrap: wrap'):
             ui.label('MODE').classes(
                 'text-caption text-weight-bold text-grey-8'
-            ).style('white-space: nowrap; letter-spacing: 0.5px')
+            ).style('white-space: nowrap; letter-spacing: 0.5px; min-width: 90px; text-align: right')
             ui.separator().props('vertical').classes('q-mx-xs').style('height: 16px')
 
             def _set_mode(m):
