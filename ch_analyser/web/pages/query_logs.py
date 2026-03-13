@@ -379,7 +379,7 @@ def _render_query_logs(filters: dict):
                 ).style('width: 200px').tooltip('Search pattern (substring)')
 
                 def _on_text(e, i=idx):
-                    query_patterns[i]['text'] = e.value or ''
+                    query_patterns[i]['text'] = e.args or ''
 
                 def _on_text_enter(i=idx):
                     _refresh()
