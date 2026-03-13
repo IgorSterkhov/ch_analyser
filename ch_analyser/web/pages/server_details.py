@@ -7,6 +7,7 @@ instead of many individual panel references.
 import html
 import json
 import re
+from datetime import datetime
 from dataclasses import dataclass, field
 
 from nicegui import app, background_tasks, run, ui
@@ -19,6 +20,7 @@ from ch_analyser.web.auth_helpers import is_admin
 from ch_analyser.web.pages._shared import (
     copy_to_clipboard, show_refs_dialog,
     flow_to_mermaid, show_fullscreen_mermaid, render_mermaid_scrollable,
+    apply_text_filter, export_table_csv, export_table_excel,
     PAGINATION_SLOT, HEADER_CELL_TOOLTIP_SLOT,
 )
 
@@ -518,6 +520,14 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
                     ui.button('Close', on_click=sql_dlg.close).props('flat')
             sql_dlg.open()
 
+        def _make_tables_filename(ext):
+            conn = re.sub(r'[^\w.\-]', '_', state.active_connection_name or 'export')
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            return f'{conn}_tables_{ts}.{ext}'
+
+        def _get_filtered_tables_rows():
+            return apply_text_filter(tbl.rows, columns, filter_input.value)
+
         with ui.row().classes('q-mt-sm gap-2'):
             ui.button('Refresh', icon='refresh',
                       on_click=lambda: background_tasks.create(_load_tables(ctx))).props(
@@ -526,6 +536,13 @@ def _render_tables(ctx: ServerDetailsContext, data, refs, total_disk_bytes=0):
             ui.button(icon='code', on_click=_show_tables_sql).props(
                 'flat dense color=primary'
             ).tooltip('Show generated SQL')
+            transforms = {'replicated': lambda v: 'Yes' if v else 'No'}
+            ui.button(icon='download', on_click=lambda: export_table_csv(
+                _get_filtered_tables_rows(), columns, _make_tables_filename('csv'), transforms,
+            )).props('flat dense color=primary').tooltip('Export to CSV')
+            ui.button(icon='table_chart', on_click=lambda: export_table_excel(
+                _get_filtered_tables_rows(), columns, _make_tables_filename('xlsx'), transforms, 'Tables',
+            )).props('flat dense color=primary').tooltip('Export to Excel')
 
 
 # ── Columns (right drawer) ──
@@ -707,6 +724,20 @@ def _render_columns_tab(data, col_refs, full_table_name: str, total_disk_bytes: 
         show_refs_dialog(row['name'], row.get('dist_list', []))
 
     tbl.on('show-dist-refs', on_show_col_dist_refs)
+
+    def _make_cols_filename(ext):
+        conn = re.sub(r'[^\w.\-]', '_', state.active_connection_name or 'export')
+        tname = re.sub(r'[^\w.\-]', '_', full_table_name)
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        return f'{conn}_{tname}_columns_{ts}.{ext}'
+
+    with ui.row().classes('q-mt-xs gap-2'):
+        ui.button(icon='download', on_click=lambda: export_table_csv(
+            tbl.rows, columns, _make_cols_filename('csv'),
+        )).props('flat dense color=primary').tooltip('Export to CSV')
+        ui.button(icon='table_chart', on_click=lambda: export_table_excel(
+            tbl.rows, columns, _make_cols_filename('xlsx'), sheet_name='Columns',
+        )).props('flat dense color=primary').tooltip('Export to Excel')
 
 
 # ── Query History ──

@@ -1,7 +1,10 @@
 """Shared JS, CSS, and utility functions used by multiple page modules."""
 
+import csv
+import io
 import json
 import re
+from datetime import datetime
 
 from nicegui import ui
 from nicegui.element import Element as _NiceGuiElement
@@ -527,3 +530,89 @@ def render_mermaid_scrollable(mermaid_text: str):
         with ui.element('div').classes('w-full mermaid-scroll').style('overflow: auto; max-height: 60vh'):
             ui.mermaid(mermaid_text).classes('mermaid-flow')
     ui.timer(0.3, lambda: ui.run_javascript('window.applyMermaidZoom(); window.initMermaidDrag()'), once=True)
+
+
+# ── Table export utilities ──
+
+def _sanitize_filename(name: str) -> str:
+    """Replace characters unsafe for filenames with underscores."""
+    return re.sub(r'[^\w.\-]', '_', name)
+
+
+def apply_text_filter(rows: list[dict], columns: list[dict], filter_text: str | None) -> list[dict]:
+    """Replicate Quasar's default client-side table filter in Python.
+
+    Checks if any column field value contains the filter string (case-insensitive).
+    """
+    if not filter_text:
+        return rows
+    filter_lower = filter_text.lower()
+    col_fields = [c['field'] for c in columns]
+    return [
+        row for row in rows
+        if any(filter_lower in str(row.get(f, '')).lower() for f in col_fields)
+    ]
+
+
+def _export_rows(rows, columns, field_transforms=None):
+    """Prepare rows for export: pick only columns in the definition, apply transforms."""
+    result = []
+    for row in rows:
+        out = {}
+        for col in columns:
+            val = row.get(col['field'], '')
+            if field_transforms and col['field'] in field_transforms:
+                val = field_transforms[col['field']](val)
+            out[col['field']] = val
+        result.append(out)
+    return result
+
+
+def export_table_csv(rows, columns, filename, field_transforms=None):
+    """Generate a CSV file from table rows and trigger browser download."""
+    prepared = _export_rows(rows, columns, field_transforms)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([c['label'] for c in columns])
+    for row in prepared:
+        writer.writerow([row[c['field']] for c in columns])
+    content = b'\xef\xbb\xbf' + buf.getvalue().encode('utf-8')
+    ui.download(content, filename)
+
+
+def export_table_excel(rows, columns, filename, field_transforms=None, sheet_name='Data'):
+    """Generate an Excel file from table rows and trigger browser download."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    prepared = _export_rows(rows, columns, field_transforms)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+
+    header_font = Font(bold=True)
+    header_fill = PatternFill(start_color='D6EAF8', end_color='D6EAF8', fill_type='solid')
+
+    for col_idx, col in enumerate(columns, 1):
+        cell = ws.cell(row=1, column=col_idx, value=col['label'])
+        cell.font = header_font
+        cell.fill = header_fill
+
+    for row_idx, row in enumerate(prepared, 2):
+        for col_idx, col in enumerate(columns, 1):
+            ws.cell(row=row_idx, column=col_idx, value=row[col['field']])
+
+    for col_idx, col in enumerate(columns, 1):
+        max_len = len(str(col['label']))
+        for row in prepared:
+            val_len = len(str(row[col['field']]))
+            if val_len > max_len:
+                max_len = val_len
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_len + 2, 50)
+
+    ws.freeze_panes = 'A2'
+    ws.auto_filter.ref = ws.dimensions
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    ui.download(buf.getvalue(), filename)
