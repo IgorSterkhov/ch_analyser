@@ -1196,13 +1196,7 @@ def _load_qmon_iframe(ctx: ServerDetailsContext):
                      ).classes('text-grey-7 q-pa-md')
         return
 
-    qmon_alias = ''
-    if state.active_connection_name:
-        cfg = state.conn_manager.get_connection(state.active_connection_name)
-        if cfg:
-            qmon_alias = cfg.qmon_alias or ''
-
-    iframe_url = qmon_url + (f'?include={qmon_alias}' if qmon_alias else '')
+    iframe_url = qmon_url
 
     with ctx.qmon_panel:
         ui.element('iframe').props(
