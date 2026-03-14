@@ -110,11 +110,9 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
                 ctx.query_logs_panel = ui.column().classes('w-full')
                 with ctx.query_logs_panel:
                     ui.label('Select a connection above.').classes('text-grey-7')
-            with ui.tab_panel(qmon_main_tab).classes('q-pa-none').style(
-                'position: relative; flex: 1 1 0; min-height: 0'
-            ):
-                ctx.qmon_panel = ui.element('div').style(
-                    'position: absolute; inset: 0'
+            with ui.tab_panel(qmon_main_tab).classes('q-pa-none'):
+                ctx.qmon_panel = ui.element('div').classes('w-full').style(
+                    'height: calc(100vh - 160px)'
                 )
                 with ctx.qmon_panel:
                     ui.label('Select a connection above.').classes('text-grey-7 q-pa-md')
@@ -141,7 +139,7 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
             if tab == 'Query Logs' and 'Query Logs' not in ctx.main_tabs_loaded and state.service:
                 ctx.main_tabs_loaded.add('Query Logs')
                 background_tasks.create(load_query_logs(ctx))
-            if tab == 'QMON' and 'QMON' not in ctx.main_tabs_loaded and state.active_connection_name:
+            if tab == 'QMON' and 'QMON' not in ctx.main_tabs_loaded:
                 ctx.main_tabs_loaded.add('QMON')
                 _load_qmon_iframe(ctx)
             ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
@@ -1205,11 +1203,9 @@ def _load_qmon_iframe(ctx: ServerDetailsContext):
     iframe_url = qmon_url + (f'?include={qmon_alias}' if qmon_alias else '')
 
     with ctx.qmon_panel:
-        ui.html(
-            f'<iframe src="{iframe_url}" '
-            f'style="width: 100%; height: 100%; border: none;" '
-            f'allow="clipboard-write"></iframe>'
-        )
+        ui.element('iframe').props(
+            f'src="{iframe_url}" frameborder="0" allow="clipboard-write"'
+        ).style('width: 100%; height: 100%; border: none')
 
 
 async def _load_text_logs(ctx: ServerDetailsContext):
