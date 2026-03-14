@@ -81,6 +81,11 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None, title: 
         ).classes('w-full')
         ca_cert_input.set_visibility(existing.secure if existing else False)
 
+        qmon_alias_input = ui.input(
+            'QMON Alias',
+            value=existing.qmon_alias if existing else '',
+        ).classes('w-full').tooltip('QMON server ID for this connection (e.g. clh2, clh8)')
+
         def _update_port():
             key = (protocol_select.value, ssl_switch.value)
             port_input.value = PORT_DEFAULTS.get(key, 9000)
@@ -105,6 +110,7 @@ def connection_dialog(on_save, existing: ConnectionConfig | None = None, title: 
                 protocol=protocol_select.value,
                 secure=ssl_switch.value,
                 ca_cert=(ca_cert_input.value or '').strip(),
+                qmon_alias=(qmon_alias_input.value or '').strip(),
             )
 
         with ui.row().classes('w-full justify-end q-mt-md gap-2'):

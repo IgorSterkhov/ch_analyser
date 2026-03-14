@@ -35,6 +35,7 @@ class ServerDetailsContext:
     drawer_title: ui.label = None
     text_logs_panel: ui.column = None
     query_logs_panel: ui.column = None
+    qmon_panel: ui.element = None
     users_panel: ui.column = None
     main_tabs_loaded: set = field(default_factory=set)
     connection_select: ui.select = None
@@ -88,6 +89,7 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
             users_main_tab = ui.tab('Users', icon='people').tooltip('User activity stats')
             text_logs_main_tab = ui.tab('Text Logs', icon='article').tooltip('Server error logs')
             query_logs_main_tab = ui.tab('Query Logs', icon='manage_search').tooltip('Server-wide query log')
+            qmon_main_tab = ui.tab('QMON', icon='monitor').tooltip('Active queries')
 
         with ui.tab_panels(main_tabs, value=tables_main_tab).classes(
             'w-full q-pt-none flex-grow'
@@ -108,11 +110,19 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
                 ctx.query_logs_panel = ui.column().classes('w-full')
                 with ctx.query_logs_panel:
                     ui.label('Select a connection above.').classes('text-grey-7')
+            with ui.tab_panel(qmon_main_tab).classes('q-pa-none').style(
+                'position: relative; flex: 1 1 0; min-height: 0'
+            ):
+                ctx.qmon_panel = ui.element('div').style(
+                    'position: absolute; inset: 0'
+                )
+                with ctx.qmon_panel:
+                    ui.label('Select a connection above.').classes('text-grey-7 q-pa-md')
 
         def _on_main_tab_change(e):
             tab = e.value
             ctx.active_main_tab = tab
-            if tab in ('Text Logs', 'Query Logs'):
+            if tab in ('Text Logs', 'Query Logs', 'QMON'):
                 if ctx.right_drawer and hasattr(ctx.right_drawer, 'value') and ctx.right_drawer.value:
                     ctx.right_drawer.hide()
                 ui.run_javascript(
@@ -131,6 +141,9 @@ def build_server_details_view(parent, right_drawer, columns_panel, drawer_title=
             if tab == 'Query Logs' and 'Query Logs' not in ctx.main_tabs_loaded and state.service:
                 ctx.main_tabs_loaded.add('Query Logs')
                 background_tasks.create(load_query_logs(ctx))
+            if tab == 'QMON' and 'QMON' not in ctx.main_tabs_loaded and state.active_connection_name:
+                ctx.main_tabs_loaded.add('QMON')
+                _load_qmon_iframe(ctx)
             ui.timer(0.3, lambda: ui.run_javascript('window.fitStickyTables()'), once=True)
 
         main_tabs.on_value_change(_on_main_tab_change)
@@ -239,6 +252,14 @@ async def _on_connect_async(cfg, ctx: ServerDetailsContext):
             ctx.query_logs_panel.clear()
             with ctx.query_logs_panel:
                 ui.label('Switch to Query Logs tab to load.').classes('text-grey-7')
+
+        if ctx.active_main_tab == 'QMON':
+            ctx.main_tabs_loaded.add('QMON')
+            _load_qmon_iframe(ctx)
+        elif ctx.qmon_panel:
+            ctx.qmon_panel.clear()
+            with ctx.qmon_panel:
+                ui.label('Switch to QMON tab to load.').classes('text-grey-7 q-pa-md')
 
     except Exception as ex:
         _connecting_name = None
@@ -1161,6 +1182,35 @@ def _render_flow_tab(mv_flow, query_flow, full_table_name: str):
 
 
 # ── Text Logs ──
+
+def _load_qmon_iframe(ctx: ServerDetailsContext):
+    """Build the QMON iframe inside the qmon panel."""
+    if not ctx.qmon_panel:
+        return
+    ctx.qmon_panel.clear()
+
+    qmon_url = state.app_settings.get('QMON_URL', '').strip().rstrip('/')
+    if not qmon_url:
+        with ctx.qmon_panel:
+            ui.label('QMON URL not configured. Set it in Settings → QMON.'
+                     ).classes('text-grey-7 q-pa-md')
+        return
+
+    qmon_alias = ''
+    if state.active_connection_name:
+        cfg = state.conn_manager.get_connection(state.active_connection_name)
+        if cfg:
+            qmon_alias = cfg.qmon_alias or ''
+
+    iframe_url = qmon_url + (f'?include={qmon_alias}' if qmon_alias else '')
+
+    with ctx.qmon_panel:
+        ui.html(
+            f'<iframe src="{iframe_url}" '
+            f'style="width: 100%; height: 100%; border: none;" '
+            f'allow="clipboard-write"></iframe>'
+        )
+
 
 async def _load_text_logs(ctx: ServerDetailsContext):
     ctx.text_logs_panel.clear()

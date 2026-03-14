@@ -9,7 +9,7 @@ logger = get_logger(__name__)
 
 CONN_PREFIX = "CLICKHOUSE_CONNECTION_"
 CONN_PATTERN = re.compile(r"^CLICKHOUSE_CONNECTION_(\d+)_(.+)$")
-FIELDS = ("NAME", "HOST", "PORT", "USER", "PASSWORD", "PROTOCOL", "SECURE")
+FIELDS = ("NAME", "HOST", "PORT", "USER", "PASSWORD", "PROTOCOL", "SECURE", "QMON_ALIAS")
 
 APP_SETTING_PREFIX = "APP_SETTING_"
 APP_SETTING_PATTERN = re.compile(r"^APP_SETTING_(.+)$")
@@ -19,6 +19,7 @@ APP_SETTINGS_DEFAULTS = {
     "DISK_CRITICAL_PCT": "90",
     "MONITORING_RETENTION_DAYS": "365",
     "MONITORING_DB_PATH": "data/monitoring.duckdb",
+    "QMON_URL": "",
 }
 
 
@@ -32,6 +33,7 @@ class ConnectionConfig:
     protocol: str = "native"   # "native" | "http"
     secure: bool = False
     ca_cert: str = ""          # path to CA .crt file
+    qmon_alias: str = ""       # qmon server ID (e.g. "clh2", "clh8")
 
 
 class ConnectionManager:
@@ -67,6 +69,7 @@ class ConnectionManager:
                 password=data.get("PASSWORD", ""),
                 protocol=data.get("PROTOCOL", "native"),
                 secure=data.get("SECURE", "false").lower() == "true",
+                qmon_alias=data.get("QMON_ALIAS", ""),
             )
 
     @property
@@ -140,6 +143,7 @@ class ConnectionManager:
                 f.write(f"{prefix}PASSWORD={cfg.password}\n")
                 f.write(f"{prefix}PROTOCOL={cfg.protocol}\n")
                 f.write(f"{prefix}SECURE={str(cfg.secure).lower()}\n")
+                f.write(f"{prefix}QMON_ALIAS={cfg.qmon_alias}\n")
 
 
 class AppSettingsManager:

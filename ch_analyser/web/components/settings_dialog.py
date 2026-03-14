@@ -52,6 +52,7 @@ def show_settings_dialog(on_connections_changed=None):
             if admin:
                 connections_tab = ui.tab('Connections', icon='dns').tooltip('Server connections')
                 monitoring_tab = ui.tab('Monitoring', icon='monitor_heart').tooltip('Alert thresholds')
+                qmon_tab = ui.tab('QMON', icon='monitor').tooltip('QMON integration')
 
         with ui.tab_panels(tabs, value=general_tab).classes('w-full'):
             # ── General tab ──
@@ -133,6 +134,23 @@ def show_settings_dialog(on_connections_changed=None):
                     ui.button('Stop Service', icon='power_settings_new', on_click=_confirm_shutdown).props(
                         'color=negative outline dense'
                     ).tooltip('Stop application')
+
+            # ── QMON tab (admin only) ──
+            if admin:
+                with ui.tab_panel(qmon_tab):
+                    ui.label('QMON Integration').classes('text-subtitle2 q-mb-xs')
+
+                    qmon_url_input = ui.input(
+                        'QMON Base URL',
+                        value=state.app_settings.get('QMON_URL', ''),
+                        placeholder='http://host/qmon',
+                    ).classes('w-full').tooltip('Base URL of the QMON web application')
+
+                    def _save_qmon():
+                        state.app_settings.set('QMON_URL', qmon_url_input.value.strip().rstrip('/'))
+                        ui.notify('QMON settings saved', type='positive')
+
+                    ui.button('Save', on_click=_save_qmon).props('color=primary dense').classes('q-mt-sm')
 
         with ui.row().classes('w-full justify-end q-mt-md'):
             ui.button('Close', on_click=dlg.close).props('flat')
@@ -251,6 +269,7 @@ def _on_copy_conn(cfg, container, dlg, on_connections_changed):
         protocol=cfg.protocol,
         secure=cfg.secure,
         ca_cert=cfg.ca_cert,
+        qmon_alias=cfg.qmon_alias,
     )
 
     def save(new_cfg):
