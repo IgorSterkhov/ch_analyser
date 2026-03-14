@@ -1188,6 +1188,8 @@ def _load_qmon_iframe(ctx: ServerDetailsContext):
     ctx.qmon_panel.clear()
 
     qmon_url = state.app_settings.get('QMON_URL', '').strip().rstrip('/')
+    if qmon_url and not qmon_url.startswith(('http://', 'https://')):
+        qmon_url = 'http://' + qmon_url
     if not qmon_url:
         with ctx.qmon_panel:
             ui.label('QMON URL not configured. Set it in Settings → QMON.'
