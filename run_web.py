@@ -10,6 +10,7 @@ from ch_analyser.web.app import start
 if __name__ in {"__main__", "__mp_main__"}:
     parser = argparse.ArgumentParser(description="ClickHouse Analyser Web UI")
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging (all queries visible)")
+    parser.add_argument("--no-reload", action="store_true", help="Disable automatic reload (container/server)")
     args = parser.parse_args()
     setup_logging(logging.DEBUG if args.debug else None)
-    start()
+    start(reload=not args.no_reload)

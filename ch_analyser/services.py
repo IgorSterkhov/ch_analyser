@@ -1,6 +1,8 @@
 import re
 
 from ch_analyser.client import CHClient
+from ch_analyser.query_flow import QueryFlowMixin
+from ch_analyser.table_metadata import TableMetadataMixin
 from ch_analyser.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -26,7 +28,7 @@ def _bfs(graph: dict[str, set[str]], start: str) -> set[str]:
     return visited
 
 
-class AnalysisService:
+class AnalysisService(TableMetadataMixin, QueryFlowMixin):
     def __init__(self, client: CHClient):
         self._client = client
 
@@ -87,6 +89,7 @@ class AnalysisService:
 
         # 5. DDL + TTL from system.tables
         ttl_map: dict[str, str] = {}
+        catalog_tables: set[str] = set()
         try:
             rows = self._client.execute(
                 "SELECT database, name, create_table_query "
@@ -95,6 +98,7 @@ class AnalysisService:
                 {"excluded": excluded},
             )
             for r in rows:
+                catalog_tables.add(f"{r['database']}.{r['name']}")
                 ddl = r["create_table_query"] or ""
                 ttl_match = re.search(
                     r'\bTTL\s+(.+?)(?=\s+(?:DELETE|TO\s+DISK|TO\s+VOLUME|RECOMPRESS|SETTINGS|ENGINE)\b|,|\Z)',
@@ -107,7 +111,7 @@ class AnalysisService:
             logger.warning("Failed to get TTL info: %s", e)
 
         # Merge results
-        all_tables = set(sizes.keys()) | set(last_selects.keys()) | set(last_inserts.keys())
+        all_tables = catalog_tables | set(sizes) | set(last_selects) | set(last_inserts)
         # Filter out system databases from query_log results too
         all_tables = {t for t in all_tables if not any(t.startswith(f"{db}.") for db in EXCLUDED_DATABASES)}
 
@@ -601,56 +605,6 @@ class AnalysisService:
             for n in visited
         ]
         return {'nodes': relevant_nodes, 'edges': relevant_edges}
-
-    def get_query_flow(self, full_table_name: str, log_days: int = QUERY_LOG_DAYS_DEFAULT) -> dict:
-        """Get query-based data flow (INSERT...SELECT patterns) involving the given table."""
-        try:
-            rows = self._client.execute(
-                "SELECT DISTINCT query, tables "
-                "FROM system.query_log "
-                "WHERE type = 'QueryFinish' "
-                "AND query_kind = 'Insert' "
-                "AND length(tables) > 1 "
-                "AND has(tables, %(table)s) "
-                f"AND event_time > now() - INTERVAL {int(log_days)} DAY "
-                "LIMIT 1000",
-                {"table": full_table_name},
-            )
-        except Exception as e:
-            logger.error("Failed to get query flow: %s", e)
-            return {'nodes': [], 'edges': []}
-
-        edges_set: set[tuple[str, str]] = set()
-        all_tables: set[str] = set()
-
-        for r in rows:
-            tables_list = r['tables']
-            query = r['query']
-
-            insert_match = re.search(r'\bINSERT\s+INTO\s+(\S+)', query, re.IGNORECASE)
-            if insert_match:
-                target = insert_match.group(1).strip('`"')
-                for t in tables_list:
-                    if t != target:
-                        edges_set.add((t, target))
-                        all_tables.add(t)
-                        all_tables.add(target)
-
-        # BFS filtering: keep only tables in the vertical chain of full_table_name
-        forward: dict[str, set[str]] = {}
-        backward: dict[str, set[str]] = {}
-        for src, dst in edges_set:
-            forward.setdefault(src, set()).add(dst)
-            backward.setdefault(dst, set()).add(src)
-
-        if full_table_name not in forward and full_table_name not in backward:
-            return {'nodes': [], 'edges': []}
-
-        visited = _bfs(forward, full_table_name) | _bfs(backward, full_table_name)
-
-        nodes = [{'id': t, 'type': 'table'} for t in visited]
-        edges = [{'from': s, 'to': d} for s, d in edges_set if s in visited and d in visited]
-        return {'nodes': nodes, 'edges': edges}
 
     # ── Text Log analysis ───────────────────────────────────────────
 

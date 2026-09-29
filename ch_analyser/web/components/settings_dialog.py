@@ -8,12 +8,12 @@ from ch_analyser.config import ConnectionConfig
 from ch_analyser.web.components.connection_dialog import connection_dialog
 
 DEFAULT_SETTINGS = {
-    'table_density': 'default',  # 'compact' | 'default' | 'comfortable'
+    'table_density': 'compact',  # 'compact' | 'standard' | 'comfortable'
 }
 
 DENSITY_OPTIONS = {
     'compact': 'Compact',
-    'default': 'Default',
+    'standard': 'Standard',
     'comfortable': 'Comfortable',
 }
 
@@ -21,7 +21,12 @@ DENSITY_OPTIONS = {
 def get_settings() -> dict:
     """Return current user settings with defaults applied."""
     saved = app.storage.user.get('settings', {})
-    return {**DEFAULT_SETTINGS, **saved}
+    settings = {**DEFAULT_SETTINGS, **saved}
+    if settings['table_density'] == 'default':
+        settings['table_density'] = 'standard'
+    if settings['table_density'] not in DENSITY_OPTIONS:
+        settings['table_density'] = DEFAULT_SETTINGS['table_density']
+    return settings
 
 
 def get_admin_settings() -> dict:
@@ -305,7 +310,7 @@ def _on_delete_conn(cfg, container, dlg, on_connections_changed):
 def _apply_density(density: str):
     """Apply density CSS class to the page body via JS."""
     ui.run_javascript(
-        "document.body.classList.remove('density-compact', 'density-default', 'density-comfortable');"
+        "document.body.classList.remove('density-compact', 'density-default', 'density-standard', 'density-comfortable');"
         f"document.body.classList.add('density-{density}');"
     )
 

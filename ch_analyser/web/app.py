@@ -33,6 +33,6 @@ async def _shutdown():
     logger.info("Monitoring stopped")
 
 
-def start():
+def start(*, reload: bool = True):
     """Run the NiceGUI web server."""
-    ui.run(port=8080, title='ClickHouse Analyser', storage_secret='ch-analyser-secret')
+    ui.run(port=8080, title='ClickHouse Analyser', storage_secret='ch-analyser-secret', reload=reload)

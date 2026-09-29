@@ -380,7 +380,7 @@ SHARED_CSS = '''
     }
     .density-comfortable .q-table td,
     .density-comfortable .q-table th {
-        padding: 12px 16px !important;
+        padding: 16px !important; height: 60px !important;
     }
     /* Sticky table headers */
     .q-table thead tr th {
@@ -454,27 +454,27 @@ def flow_to_mermaid(flow: dict, highlight_table: str = '') -> str:
     """Convert flow dict to Mermaid flowchart syntax."""
     if not flow['nodes'] and not flow['edges']:
         return ''
-
     lines = ['%%{init: {"flowchart": {"useMaxWidth": false}}}%%', 'graph TB']
     for node in flow['nodes']:
         node_id = re.sub(r'[^a-zA-Z0-9_]', '_', node['id'])
-        label = node['id']
+        label = node['id'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
         if node['type'] == 'mv':
             lines.append(f'    {node_id}[/"{label}"/]')
+        elif node['type'] == 'dictionary':
+            badge = f"<div style='text-align:right;font-size:10px;line-height:1'>dict</div><div>{label}</div>"
+            lines.append(f'    {node_id}{{{{"{badge}"}}}}')
+            width = 3 if node['id'] == highlight_table else 1.5
+            lines.append(f'    style {node_id} fill:#eef5fc,stroke:#1976d2,stroke-width:{width}px,color:#17324d')
         else:
             lines.append(f'    {node_id}["{label}"]')
-
     for edge in flow['edges']:
         src_id = re.sub(r'[^a-zA-Z0-9_]', '_', edge['from'])
         dst_id = re.sub(r'[^a-zA-Z0-9_]', '_', edge['to'])
         lines.append(f'    {src_id} --> {dst_id}')
-
-    if highlight_table:
+    if highlight_table and not any(n['id'] == highlight_table and n['type'] == 'dictionary' for n in flow['nodes']):
         ht_id = re.sub(r'[^a-zA-Z0-9_]', '_', highlight_table)
         lines.append(f'    style {ht_id} fill:#1976d2,color:#fff')
-
     return '\n'.join(lines)
-
 
 def show_fullscreen_mermaid(mermaid_text: str):
     """Open a maximized dialog with the Mermaid diagram."""

@@ -19,11 +19,12 @@ import ch_analyser.web.state as state
 from ch_analyser.web.auth_helpers import is_admin
 from ch_analyser.web.pages._shared import (
     copy_to_clipboard, show_refs_dialog,
-    flow_to_mermaid, show_fullscreen_mermaid, render_mermaid_scrollable,
     apply_text_filter, export_table_csv, export_table_excel,
     PAGINATION_SLOT, HEADER_CELL_TOOLTIP_SLOT,
 )
 from ch_analyser.web.pages.query_logs import load_query_logs
+from ch_analyser.web.pages.flow_panel import render_flow_tab
+from ch_analyser.web.pages.table_info import render_table_info
 
 
 @dataclass
@@ -629,6 +630,11 @@ async def _load_columns(ctx: ServerDetailsContext, full_table_name: str):
     except Exception:
         col_refs = {}
 
+    try:
+        table_info = await run.io_bound(lambda: service.get_table_info(full_table_name))
+    except Exception:
+        table_info = {'error': 'Table metadata unavailable. Check access to system.tables.'}
+
     ctx.columns_panel.clear()
     with ctx.columns_panel:
         ui.label(full_table_name).classes(
@@ -636,13 +642,16 @@ async def _load_columns(ctx: ServerDetailsContext, full_table_name: str):
         ).style('border: 1px solid #9e9e9e; border-radius: 4px')
 
         with ui.tabs().classes('w-full').props('dense') as tabs:
+            info_tab = ui.tab('Table Info').tooltip('Table definition and storage details')
             columns_tab = ui.tab('Columns').tooltip('Column details')
             history_tab = ui.tab('Query History').tooltip('Query history')
             flow_tab = ui.tab('Flow').tooltip('Data flow diagrams')
 
         loaded_tabs = set()
 
-        with ui.tab_panels(tabs, value=columns_tab).classes('w-full q-pt-none') as tab_panels:
+        with ui.tab_panels(tabs, value=info_tab).classes('w-full q-pt-none') as tab_panels:
+            with ui.tab_panel(info_tab).classes('q-pa-xs').style('gap: 0'):
+                render_table_info(table_info)
             with ui.tab_panel(columns_tab).classes('q-pa-xs'):
                 _render_columns_tab(columns_data, col_refs, full_table_name, total_disk_bytes)
                 loaded_tabs.add('Columns')
@@ -1129,54 +1138,7 @@ async def _render_flow_tab_async(service, full_table_name: str, panel):
         query_flow = {'nodes': [], 'edges': []}
     panel.clear()
     with panel:
-        _render_flow_tab(mv_flow, query_flow, full_table_name)
-
-
-def _render_flow_tab(mv_flow, query_flow, full_table_name: str):
-    with ui.tabs().classes('w-full').props('dense') as sub_tabs:
-        mv_tab = ui.tab('MV Flow').tooltip('Materialized view chains')
-        query_tab = ui.tab('Query Flow').tooltip('INSERT…SELECT pipelines')
-        full_tab = ui.tab('Full Flow').tooltip('Combined data flow')
-
-    sub_tabs.on_value_change(
-        lambda: ui.timer(0.3, lambda: ui.run_javascript('window.initMermaidDrag()'), once=True)
-    )
-
-    with ui.tab_panels(sub_tabs, value=mv_tab).classes('w-full'):
-        with ui.tab_panel(mv_tab):
-            mermaid_text = flow_to_mermaid(mv_flow, highlight_table=full_table_name)
-            if mermaid_text:
-                render_mermaid_scrollable(mermaid_text)
-            else:
-                ui.label('No materialized view flow found.').classes('text-grey-7')
-
-        with ui.tab_panel(query_tab):
-            mermaid_text = flow_to_mermaid(query_flow, highlight_table=full_table_name)
-            if mermaid_text:
-                render_mermaid_scrollable(mermaid_text)
-            else:
-                ui.label('No query-based data flow found.').classes('text-grey-7')
-
-        with ui.tab_panel(full_tab):
-            all_nodes = {n['id']: n for n in mv_flow['nodes']}
-            for n in query_flow['nodes']:
-                if n['id'] not in all_nodes:
-                    all_nodes[n['id']] = n
-
-            all_edges_set = set()
-            all_edges = []
-            for e in mv_flow['edges'] + query_flow['edges']:
-                key = (e['from'], e['to'])
-                if key not in all_edges_set:
-                    all_edges_set.add(key)
-                    all_edges.append(e)
-
-            merged = {'nodes': list(all_nodes.values()), 'edges': all_edges}
-            mermaid_text = flow_to_mermaid(merged, highlight_table=full_table_name)
-            if mermaid_text:
-                render_mermaid_scrollable(mermaid_text)
-            else:
-                ui.label('No data flow found.').classes('text-grey-7')
+        render_flow_tab(mv_flow, query_flow, full_table_name)
 
 
 # ── Text Logs ──
