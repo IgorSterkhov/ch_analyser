@@ -19,7 +19,7 @@ def _tooltip_above(self, text: str):
 
 _NiceGuiElement.tooltip = _tooltip_above
 
-# Clipboard JS fallback for non-HTTPS contexts (remote servers)
+# HTTP clipboard fallback keeps its temporary input inside an active dialog.
 CLIPBOARD_JS = '''
 <script>
 window.copyToClipboard = function(text) {
@@ -27,12 +27,12 @@ window.copyToClipboard = function(text) {
         var ta = document.createElement('textarea');
         ta.value = text;
         ta.style.cssText = 'position:fixed;left:-9999px;top:0';
-        document.body.appendChild(ta);
+        (document.activeElement?.closest('[role="dialog"]') || document.body).appendChild(ta);
         ta.focus();
         ta.select();
         var ok = false;
-        try { ok = document.execCommand('copy'); } catch(e) {}
-        document.body.removeChild(ta);
+        try { if (document.activeElement === ta) ok = document.execCommand('copy'); } catch(e) {}
+        ta.parentNode.removeChild(ta);
         return ok;
     }
     function notify() {
